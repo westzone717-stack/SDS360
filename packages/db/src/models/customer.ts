@@ -3,7 +3,7 @@ import type { Customer } from '@sds360/types';
 
 export interface CustomerDoc extends Omit<Customer, '_id'>, Document {}
 
-const CustomerSchema = new Schema<CustomerDoc>(
+const CustomerSchema = new Schema(
   {
     name: { type: String, required: true },
     domain: { type: String },

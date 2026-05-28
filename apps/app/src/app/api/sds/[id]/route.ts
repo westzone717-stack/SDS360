@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel, AuditLogModel } from '@sds360/db';
+import type { SdsDocumentDoc } from '@sds360/db';
 import { getPresignedDownloadUrl } from '@/lib/s3';
 import { z } from 'zod';
 
@@ -13,9 +14,9 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   await connectDb();
   const doc = await SdsDocumentModel.findOne({
     _id: params.id,
-    customerId: session.user.customerId, // Tenant isolation
+    customerId: session.user.customerId,
     status: { $ne: 'deleted' },
-  }).lean();
+  }) as SdsDocumentDoc | null;
 
   if (!doc) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 

@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
 import { connectDb, TrainingRecordModel, UserModel } from '@sds360/db';
+import type { TrainingRecordDoc } from '@sds360/db';
 import Link from 'next/link';
 
 async function getTrainingData(userId: string, customerId: string, role: string) {
@@ -18,7 +19,7 @@ async function getTrainingData(userId: string, customerId: string, role: string)
     return { role: 'admin', stats: { total, completed, expired, thisMonth } };
   }
 
-  const latest = await TrainingRecordModel.findOne({ customerId, userId }).sort({ completedAt: -1 }).lean();
+  const latest = await TrainingRecordModel.findOne({ customerId, userId }).sort({ completedAt: -1 }) as TrainingRecordDoc | null;
   return { role: 'user', record: latest };
 }
 

@@ -1,22 +1,20 @@
-import { auth } from '@/lib/auth';
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 
-export default auth((req: NextRequest & { auth: { user?: { role?: string } } | null }) => {
-  const { pathname } = req.nextUrl;
+const { auth } = NextAuth(authConfig);
+
+export default auth((req) => {
+  const { nextUrl } = req;
   const isLoggedIn = !!req.auth;
-  const isLoginPage = pathname.startsWith('/login');
-  const isDashboard = pathname.startsWith('/dashboard');
+  const isDashboard = nextUrl.pathname.startsWith('/dashboard');
+  const isLogin = nextUrl.pathname.startsWith('/login');
 
   if (!isLoggedIn && isDashboard) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return Response.redirect(new URL('/login', nextUrl));
   }
-
-  if (isLoggedIn && isLoginPage) {
-    return NextResponse.redirect(new URL('/dashboard', req.url));
+  if (isLoggedIn && isLogin) {
+    return Response.redirect(new URL('/dashboard', nextUrl));
   }
-
-  return NextResponse.next();
 });
 
 export const config = {

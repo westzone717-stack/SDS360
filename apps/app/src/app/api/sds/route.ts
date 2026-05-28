@@ -49,8 +49,10 @@ export async function POST(req: Request) {
 
     // Enqueue BullMQ job for LLM extraction
     const { Queue } = await import('bullmq');
-    const { getRedis } = await import('@/lib/redis');
-    const queue = new Queue('sds-extraction', { connection: getRedis() });
+    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+    const queue = new Queue('sds-extraction', {
+      connection: { host: new URL(redisUrl).hostname, port: Number(new URL(redisUrl).port) || 6379 },
+    });
     await queue.add('extract', { docId, customerId: session.user.customerId });
 
     return NextResponse.json({ success: true });

@@ -1,12 +1,13 @@
 import { connectDb, CustomerModel, UserModel } from '@sds360/db';
+import type { CustomerDoc, UserDoc } from '@sds360/db';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 
 async function getData(id: string) {
   await connectDb();
   const [customer, users] = await Promise.all([
-    CustomerModel.findById(id).lean(),
-    UserModel.find({ customerId: id }).select('name email role status').lean(),
+    CustomerModel.findById(id) as unknown as Promise<CustomerDoc | null>,
+    UserModel.find({ customerId: id }).select('name email role status') as unknown as Promise<UserDoc[]>,
   ]);
   return { customer, users };
 }

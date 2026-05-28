@@ -3,6 +3,8 @@ import { auth } from '@/lib/auth';
 import { connectDb, CustomerModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 
+type CustomerSnap = { contractExpiresAt: Date; status: string; plan: string };
+
 const updateSchema = z.object({
   status: z.enum(['active', 'suspended', 'cancelled']).optional(),
   plan: z.enum(['starter', 'professional', 'enterprise']).optional(),
@@ -14,10 +16,10 @@ export async function GET(_: Request, { params }: { params: { id: string } }) {
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
   await connectDb();
-  const customer = await CustomerModel.findById(params.id).lean();
+  const customer = await CustomerModel.findById(params.id);
   if (!customer) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 
-  return NextResponse.json({ success: true, data: customer });
+  return NextResponse.json({ success: true, data: customer.toObject() });
 }
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
@@ -29,7 +31,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const data = updateSchema.parse(body);
 
     await connectDb();
-    const before = await CustomerModel.findById(params.id).lean();
+    const before = (await CustomerModel.findById(params.id)) as unknown as CustomerSnap | null;
     if (!before) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 
     const updates: Record<string, unknown> = {};
@@ -41,7 +43,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       updates.contractExpiresAt = exp;
     }
 
-    const updated = await CustomerModel.findByIdAndUpdate(params.id, updates, { new: true }).lean();
+    const updated = await CustomerModel.findByIdAndUpdate(params.id, updates, { new: true });
 
     await AuditLogModel.create({
       actorId: session.user.id,

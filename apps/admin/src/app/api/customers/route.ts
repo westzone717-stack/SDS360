@@ -4,9 +4,7 @@ import { connectDb, CustomerModel, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
-import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -59,6 +57,9 @@ export async function POST(req: Request) {
       { email: data.accessManagerEmail, name: data.accessManagerName, role: 'access_manager' },
       ...data.adminEmails.filter(Boolean).map((email) => ({ email, name: email.split('@')[0], role: 'admin' as const })),
     ];
+
+    const { Resend } = await import('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
 
     for (const account of accountsToCreate) {
       const password = generatePassword();

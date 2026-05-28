@@ -1,5 +1,6 @@
 import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel } from '@sds360/db';
+import type { SdsDocumentDoc } from '@sds360/db';
 import { getPresignedDownloadUrl } from '@/lib/s3';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
@@ -31,13 +32,13 @@ const hazardColors: Record<HazardLevel, string> = {
   low: 'border-green-600 bg-green-50',
 };
 
-async function getSds(id: string, customerId: string) {
+async function getSds(id: string, customerId: string): Promise<SdsDocumentDoc | null> {
   await connectDb();
   return SdsDocumentModel.findOne({
     _id: id,
     customerId,
     status: { $ne: 'deleted' },
-  }).lean();
+  }) as Promise<SdsDocumentDoc | null>;
 }
 
 export default async function SdsDetailPage({ params }: { params: { id: string } }) {

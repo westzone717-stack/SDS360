@@ -1,9 +1,13 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { AuditLog } from '@sds360/types';
 
-export interface AuditLogDoc extends Omit<AuditLog, '_id'>, Document {}
+// actorId / customerId stored as ObjectId in DB, exposed as string in types
+export interface AuditLogDoc extends Omit<AuditLog, '_id' | 'actorId' | 'customerId'>, Document {
+  actorId: Types.ObjectId | string;
+  customerId?: Types.ObjectId | string;
+}
 
-const AuditLogSchema = new Schema<AuditLogDoc>(
+const AuditLogSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', index: true },
     actorId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

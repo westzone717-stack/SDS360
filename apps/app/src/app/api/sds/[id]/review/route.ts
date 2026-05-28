@@ -45,7 +45,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       { _id: params.id, customerId: session.user.customerId },
       update,
       { new: true }
-    ).lean();
+    ) as { reviewStatus: string } | null;
 
     if (!doc) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 

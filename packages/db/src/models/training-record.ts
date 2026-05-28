@@ -1,7 +1,10 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { TrainingRecord } from '@sds360/types';
 
-export interface TrainingRecordDoc extends Omit<TrainingRecord, '_id'>, Document {}
+export interface TrainingRecordDoc extends Omit<TrainingRecord, '_id' | 'customerId' | 'userId'>, Document {
+  customerId: Types.ObjectId | string;
+  userId: Types.ObjectId | string;
+}
 
 const AnswerSchema = new Schema(
   {
@@ -12,7 +15,7 @@ const AnswerSchema = new Schema(
   { _id: false }
 );
 
-const TrainingRecordSchema = new Schema<TrainingRecordDoc>(
+const TrainingRecordSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },

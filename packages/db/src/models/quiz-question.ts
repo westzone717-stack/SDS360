@@ -1,9 +1,12 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { QuizQuestion } from '@sds360/types';
 
-export interface QuizQuestionDoc extends Omit<QuizQuestion, '_id'>, Document {}
+export interface QuizQuestionDoc extends Omit<QuizQuestion, '_id' | 'customerId' | 'sdsDocumentId'>, Document {
+  customerId: Types.ObjectId | string;
+  sdsDocumentId: Types.ObjectId | string;
+}
 
-const QuizQuestionSchema = new Schema<QuizQuestionDoc>(
+const QuizQuestionSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     sdsDocumentId: { type: Schema.Types.ObjectId, ref: 'SdsDocument', required: true },

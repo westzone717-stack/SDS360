@@ -1,10 +1,8 @@
 import { NextResponse } from 'next/server';
 import { connectDb, UserModel } from '@sds360/db';
 import { storeOtp, checkRateLimit } from '@/lib/redis';
-import { Resend } from 'resend';
 import { z } from 'zod';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 function generateOtp(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -32,11 +30,13 @@ export async function POST(req: Request) {
     const otp = generateOtp();
     await storeOtp(email, otp);
 
+    const { Resend } = await import('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: process.env.EMAIL_FROM ?? 'noreply@sds360.com',
       to: email,
       subject: 'SDS 360 Admin Login Code',
-      html: `<p>Your SDS 360 admin login code is:</p><h2>${otp}</h2><p>This code expires in 10 minutes.</p>`,
+      html: `<p>Your admin login code is:</p><h2 style="letter-spacing:4px">${otp}</h2><p>Expires in 10 minutes.</p>`,
     });
 
     return NextResponse.json({ success: true });

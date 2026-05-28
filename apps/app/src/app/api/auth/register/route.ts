@@ -1,10 +1,6 @@
 import { NextResponse } from 'next/server';
 import { connectDb, UserModel } from '@sds360/db';
-import { Resend } from 'resend';
 import { z } from 'zod';
-import { headers } from 'next/headers';
-
-const resend = new Resend(process.env.RESEND_API_KEY);
 
 const schema = z.object({
   name: z.string().min(1),
@@ -17,17 +13,14 @@ export async function POST(req: Request) {
     const body = await req.json() as unknown;
     const data = schema.parse(body);
 
-    // Determine customerId from email domain
     const domain = data.email.split('@')[1];
     await connectDb();
 
     const existingUser = await UserModel.findOne({ email: data.email.toLowerCase() });
     if (existingUser) {
-      // Don't reveal if user exists, just pretend success
       return NextResponse.json({ success: true });
     }
 
-    // Find an admin in the same domain to notify
     const domainAdmin = await UserModel.findOne({
       email: { $regex: `@${domain}$` },
       role: 'admin',
@@ -35,11 +28,13 @@ export async function POST(req: Request) {
     });
 
     if (!domainAdmin) {
-      return NextResponse.json({ success: false, error: 'No matching organization found for your email domain.' }, { status: 404 });
+      return NextResponse.json(
+        { success: false, error: 'No matching organization found for your email domain.' },
+        { status: 404 }
+      );
     }
 
-    // Create pending user in that customer
-    const user = await UserModel.create({
+    await UserModel.create({
       customerId: domainAdmin.customerId,
       email: data.email.toLowerCase(),
       name: data.name,
@@ -51,16 +46,18 @@ export async function POST(req: Request) {
       trainingStatus: { required: true, reason: 'first_login' },
     });
 
-    // Notify admin
+    // Lazy-import Resend so the module is never evaluated at build time
+    const { Resend } = await import('resend');
+    const resend = new Resend(process.env.RESEND_API_KEY);
     await resend.emails.send({
       from: process.env.EMAIL_FROM ?? 'noreply@sds360.com',
       to: domainAdmin.email,
       subject: 'New User Registration Request — SDS 360',
       html: `
         <h2>New Access Request</h2>
-        <p><strong>${data.name}</strong> (${data.email}) has requested access to SDS 360.</p>
+        <p><strong>${data.name}</strong> (${data.email}) has requested access.</p>
         <p>Department: ${data.department ?? 'Not specified'}</p>
-        <p>Please log in to approve or reject this request in User Management.</p>
+        <p>Log in to approve or reject this request in User Management.</p>
         <a href="${process.env.APP_URL}/users">Review Request →</a>
       `,
     });

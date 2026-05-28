@@ -1,37 +1,37 @@
-import { auth } from '@/lib/auth';
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-import type { SessionUser } from '@sds360/types';
+import NextAuth from 'next-auth';
+import { authConfig } from '@/lib/auth.config';
 
-type AuthRequest = NextRequest & { auth: { user: SessionUser } | null };
+const { auth } = NextAuth(authConfig);
 
-export default auth((req: AuthRequest) => {
-  const { pathname } = req.nextUrl;
+export default auth((req) => {
+  const { nextUrl } = req;
   const session = req.auth;
   const isLoggedIn = !!session;
 
   const isPublic =
-    pathname.startsWith('/login') ||
-    pathname.startsWith('/register') ||
-    pathname.startsWith('/api/auth');
+    nextUrl.pathname.startsWith('/login') ||
+    nextUrl.pathname.startsWith('/register') ||
+    nextUrl.pathname.startsWith('/api/auth');
 
   if (!isLoggedIn && !isPublic) {
-    return NextResponse.redirect(new URL('/login', req.url));
+    return Response.redirect(new URL('/login', nextUrl));
   }
 
-  if (isLoggedIn && (pathname === '/login' || pathname === '/register')) {
-    return NextResponse.redirect(new URL('/', req.url));
+  if (isLoggedIn && (nextUrl.pathname === '/login' || nextUrl.pathname === '/register')) {
+    return Response.redirect(new URL('/', nextUrl));
   }
 
-  // Training gate: redirect to /training if training is required, except on training routes
-  if (isLoggedIn && session.user.trainingRequired) {
-    const isTrainingRoute = pathname.startsWith('/training') || pathname.startsWith('/api/training');
+  // Training gate — no DB call needed, trainingRequired is in the JWT
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const trainingRequired = (session?.user as any)?.trainingRequired;
+  if (isLoggedIn && trainingRequired) {
+    const isTrainingRoute =
+      nextUrl.pathname.startsWith('/training') ||
+      nextUrl.pathname.startsWith('/api/training');
     if (!isTrainingRoute && !isPublic) {
-      return NextResponse.redirect(new URL('/training', req.url));
+      return Response.redirect(new URL('/training', nextUrl));
     }
   }
-
-  return NextResponse.next();
 });
 
 export const config = {

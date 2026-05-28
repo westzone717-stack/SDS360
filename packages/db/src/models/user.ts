@@ -1,7 +1,8 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { User } from '@sds360/types';
 
-export interface UserDoc extends Omit<User, '_id'>, Document {
+export interface UserDoc extends Omit<User, '_id' | 'customerId'>, Document {
+  customerId: Types.ObjectId | string;
   passwordHash?: string;
 }
 
@@ -14,7 +15,7 @@ const TrainingStatusSchema = new Schema(
   { _id: false }
 );
 
-const UserSchema = new Schema<UserDoc>(
+const UserSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     email: { type: String, required: true, lowercase: true },

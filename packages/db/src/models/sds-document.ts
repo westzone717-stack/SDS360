@@ -1,7 +1,11 @@
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { SdsDocument } from '@sds360/types';
 
-export interface SdsDocumentDoc extends Omit<SdsDocument, '_id'>, Document {}
+export interface SdsDocumentDoc extends Omit<SdsDocument, '_id' | 'customerId' | 'uploadedBy' | 'reviewedBy'>, Document {
+  customerId: Types.ObjectId | string;
+  uploadedBy: Types.ObjectId | string;
+  reviewedBy?: Types.ObjectId | string;
+}
 
 const SdsSectionSchema = new Schema(
   {
@@ -33,7 +37,7 @@ const sectionsDefinition = SECTION_KEYS.reduce(
   {} as Record<string, unknown>
 );
 
-const SdsDocumentSchema = new Schema<SdsDocumentDoc>(
+const SdsDocumentSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     productName: { type: String, required: true },

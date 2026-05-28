@@ -1,7 +1,6 @@
 import NextAuth from 'next-auth';
 import Credentials from 'next-auth/providers/credentials';
-import { connectDb, UserModel } from '@sds360/db';
-import { verifyOtp } from './redis';
+import { authConfig } from './auth.config';
 import type { SessionUser } from '@sds360/types';
 
 declare module 'next-auth' {
@@ -12,6 +11,7 @@ declare module 'next-auth' {
 }
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
+  ...authConfig,
   providers: [
     Credentials({
       id: 'otp',
@@ -23,6 +23,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const email = String(credentials?.email ?? '').toLowerCase();
         const otp = String(credentials?.otp ?? '');
         if (!email || !otp) return null;
+
+        const { verifyOtp } = await import('./redis');
+        const { connectDb } = await import('@sds360/db');
+        const { UserModel } = await import('@sds360/db');
 
         const valid = await verifyOtp(email, otp);
         if (!valid) return null;
@@ -42,35 +46,4 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       },
     }),
   ],
-
-  callbacks: {
-    async jwt({ token, user }) {
-      if (user) {
-        token.id = user.id;
-        token.role = (user as SessionUser).role;
-        token.status = (user as SessionUser).status;
-        token.aud = 'super-admin';
-      }
-      return token;
-    },
-    async session({ session, token }) {
-      session.user = {
-        id: token.id as string,
-        email: session.user.email,
-        name: session.user.name ?? '',
-        role: token.role as SessionUser['role'],
-        status: token.status as SessionUser['status'],
-        trainingRequired: false,
-      };
-      return session;
-    },
-  },
-
-  pages: {
-    signIn: '/login',
-    error: '/login',
-  },
-
-  session: { strategy: 'jwt' },
-  secret: process.env.ADMIN_NEXTAUTH_SECRET,
 });

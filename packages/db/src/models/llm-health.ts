@@ -3,7 +3,7 @@ import type { LlmHealthStats, DeadLetterQueueItem } from '@sds360/types';
 
 export interface LlmHealthDoc extends Omit<LlmHealthStats, '_id'>, Document {}
 
-const LlmHealthSchema = new Schema<LlmHealthDoc>(
+const LlmHealthSchema = new Schema(
   {
     provider: { type: String, enum: ['claude', 'gpt', 'ollama'], required: true, unique: true },
     state: { type: String, enum: ['closed', 'open', 'half_open'], default: 'closed' },
@@ -20,9 +20,11 @@ export const LlmHealthModel =
 
 // ─── Dead Letter Queue ────────────────────────────────────────────────────────
 
-export interface DeadLetterDoc extends Omit<DeadLetterQueueItem, '_id'>, Document {}
+export interface DeadLetterDoc extends Omit<DeadLetterQueueItem, '_id' | 'customerId'>, Document {
+  customerId: import('mongoose').Types.ObjectId | string;
+}
 
-const DeadLetterSchema = new Schema<DeadLetterDoc>(
+const DeadLetterSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     taskType: { type: String, enum: ['sds_extraction', 'quiz_generation'], required: true },
