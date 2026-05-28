@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --hazard-extreme: #DC2626;
+  --hazard-high: #D97706;
+  --hazard-medium: #2563EB;
+  --hazard-low: #059669;
+}
+
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+.hazard-extreme { @apply border-red-600 bg-red-50; }
+.hazard-high    { @apply border-amber-600 bg-amber-50; }
+.hazard-medium  { @apply border-blue-600 bg-blue-50; }
+.hazard-low     { @apply border-green-600 bg-green-50; }
+
+.confidence-high   { @apply text-green-700 bg-green-100; }
+.confidence-medium { @apply text-amber-700 bg-amber-100; }
+.confidence-low    { @apply text-red-700 bg-red-100; }

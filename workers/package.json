@@ -1,0 +1,25 @@
+{
+  "name": "@sds360/workers",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --loader ts-node/esm src/index.ts",
+    "dev": "nodemon --exec 'node --loader ts-node/esm src/index.ts' --ext ts"
+  },
+  "dependencies": {
+    "@sds360/db": "workspace:*",
+    "@sds360/llm": "workspace:*",
+    "@sds360/types": "workspace:*",
+    "bullmq": "^5.12.0",
+    "ioredis": "^5.4.1",
+    "mongoose": "^8.5.0",
+    "dotenv": "^16.4.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "@types/node": "^20.14.0",
+    "ts-node": "^10.9.0",
+    "nodemon": "^3.1.0"
+  }
+}
