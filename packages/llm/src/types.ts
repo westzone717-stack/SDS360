@@ -23,10 +23,15 @@ export interface QuizGenerationResult {
 
 export type LlmResult = SdsExtractionResult | QuizGenerationResult;
 
+export interface QuizGenerationOptions {
+  count: number;
+  existingQuestions: string[];
+}
+
 export interface ProviderConfig {
   name: LlmProvider;
   weight: number;
-  call: (prompt: string, task: TaskType) => Promise<LlmResult>;
+  call: (content: string, task: TaskType, quizOptions?: QuizGenerationOptions) => Promise<LlmResult>;
 }
 
 export class AllProvidersFailedError extends Error {

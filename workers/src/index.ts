@@ -1,9 +1,44 @@
-import 'dotenv/config';
+import { config } from 'dotenv';
+import { resolve, dirname, join } from 'path';
+import { fileURLToPath } from 'url';
+import { readFile } from 'fs/promises';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+config({ path: resolve(__dirname, '../../.env') });
 import { Worker, Queue } from 'bullmq';
 import Redis from 'ioredis';
 import { connectDb, SdsDocumentModel, QuizQuestionModel, DeadLetterModel } from '@sds360/db';
 import { routeWithFallback, AllProvidersFailedError } from '@sds360/llm';
 import type { SdsExtractionResult, QuizGenerationResult } from '@sds360/llm';
+
+const UPLOADS_DIR = resolve(__dirname, '../../uploads');
+const IS_DEV_S3 = process.env.AWS_ACCESS_KEY_ID === 'placeholder';
+
+// Extract text from a document. In dev mode reads from local uploads dir;
+// in production fetches from S3 (TODO).
+async function extractDocumentText(s3Key: string): Promise<string> {
+  if (!IS_DEV_S3) {
+    // Production: fetch from S3 — left as TODO since we're in dev mode
+    return `[S3 fetch not implemented for key: ${s3Key}]`;
+  }
+
+  const filePath = join(UPLOADS_DIR, s3Key);
+  const buffer = await readFile(filePath);
+  const ext = s3Key.split('.').pop()?.toLowerCase();
+
+  if (ext === 'pdf') {
+    const { PDFParse } = await import('pdf-parse');
+    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    const result = await parser.getText();
+    await parser.destroy();
+    return result.text ?? '';
+  }
+  if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
+    // Image OCR not implemented in dev — fall back to filename
+    return `[Image SDS — OCR not implemented for ${s3Key}]`;
+  }
+  // Assume plain text / docx — best-effort decode
+  return buffer.toString('utf-8');
+}
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
   maxRetriesPerRequest: null, // Required for BullMQ
@@ -23,9 +58,18 @@ const sdsWorker = new Worker(
     const doc = await SdsDocumentModel.findById(docId);
     if (!doc) throw new Error(`Document ${docId} not found`);
 
-    // In production: fetch document text from S3 and extract text
-    // For now we use a placeholder — replace with actual PDF text extraction
-    const documentText = `[Document text extracted from S3 key: ${doc.s3Key}]`;
+    let documentText: string;
+    try {
+      documentText = await extractDocumentText(doc.s3Key);
+      console.log(`[sds-extraction] Extracted ${documentText.length} chars from ${doc.s3Key}`);
+    } catch (e) {
+      console.error(`[sds-extraction] Failed to read file ${doc.s3Key}:`, e);
+      throw e;
+    }
+
+    // Truncate very long documents to fit in context window
+    if (documentText.length > 60_000) documentText = documentText.slice(0, 60_000);
+    console.log(`[sds-extraction] PDF preview (first 300 chars):`, documentText.substring(0, 300));
 
     try {
       const result = (await routeWithFallback(documentText, 'sds_extraction')) as SdsExtractionResult;
@@ -76,14 +120,38 @@ const sdsWorker = new Worker(
 
 // ─── Quiz Generation Worker ───────────────────────────────────────────────────
 
+const MAX_QUIZ_QUESTIONS = 25;
+
 const quizWorker = new Worker(
   'quiz-generation',
   async (job) => {
-    const { sdsDocumentId, customerId } = job.data as { sdsDocumentId: string; customerId: string };
-    console.log(`[quiz-generation] Processing sdsDocumentId=${sdsDocumentId}`);
+    const { sdsDocumentId, customerId, count } = job.data as {
+      sdsDocumentId: string;
+      customerId: string;
+      count: number;
+    };
+    console.log(`[quiz-generation] Processing sdsDocumentId=${sdsDocumentId} count=${count}`);
 
     const doc = await SdsDocumentModel.findById(sdsDocumentId).lean();
     if (!doc) throw new Error(`SDS Document ${sdsDocumentId} not found`);
+
+    // Fetch existing non-rejected questions for duplicate avoidance and max enforcement
+    const existingDocs = await QuizQuestionModel.find({
+      sdsDocumentId,
+      customerId,
+      status: { $ne: 'rejected' },
+    })
+      .select('question')
+      .lean<Array<{ question: string }>>();
+
+    const remaining = MAX_QUIZ_QUESTIONS - existingDocs.length;
+    if (remaining <= 0) {
+      console.log(`[quiz-generation] Max questions reached for sdsDocumentId=${sdsDocumentId} — skipping`);
+      return;
+    }
+
+    const toGenerate = Math.min(count ?? 5, remaining);
+    const existingQuestions = existingDocs.map((q) => q.question);
 
     // Build content summary for quiz generation
     const sdsContent = Object.entries(doc.sections ?? {})
@@ -91,7 +159,10 @@ const quizWorker = new Worker(
       .join('\n\n');
 
     try {
-      const result = (await routeWithFallback(sdsContent, 'quiz_generation')) as QuizGenerationResult;
+      const result = (await routeWithFallback(sdsContent, 'quiz_generation', {
+        count: toGenerate,
+        existingQuestions,
+      })) as QuizGenerationResult;
 
       for (const q of result.questions) {
         await QuizQuestionModel.create({

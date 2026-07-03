@@ -25,3 +25,7 @@ yarn-error.log*
 
 # typescript
 *.tsbuildinfo
+
+# runtime / dev artifacts
+.logs
+uploads

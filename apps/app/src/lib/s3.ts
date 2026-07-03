@@ -27,10 +27,15 @@ export async function getPresignedUploadUrl(key: string, contentType: string) {
 }
 
 export async function getPresignedDownloadUrl(key: string): Promise<string> {
+  // Dev mode: serve from local filesystem instead of S3
+  if (process.env.AWS_ACCESS_KEY_ID === 'placeholder') {
+    const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+    return `${appUrl}/api/sds/dev-file?key=${encodeURIComponent(key)}`;
+  }
   return getSignedUrl(
     s3,
     new GetObjectCommand({ Bucket: BUCKET, Key: key }),
-    { expiresIn: 3600 } // 1 hour
+    { expiresIn: 3600 }
   );
 }
 

@@ -4,22 +4,22 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node --loader ts-node/esm src/index.ts",
-    "dev": "nodemon --exec 'node --loader ts-node/esm src/index.ts' --ext ts"
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
     "@sds360/db": "workspace:*",
     "@sds360/llm": "workspace:*",
     "@sds360/types": "workspace:*",
     "bullmq": "^5.12.0",
+    "dotenv": "^16.4.0",
     "ioredis": "^5.4.1",
     "mongoose": "^8.5.0",
-    "dotenv": "^16.4.0"
+    "pdf-parse": "^2.4.5"
   },
   "devDependencies": {
-    "typescript": "^5.5.0",
     "@types/node": "^20.14.0",
-    "ts-node": "^10.9.0",
-    "nodemon": "^3.1.0"
+    "tsx": "^4.19.0",
+    "typescript": "^5.5.0"
   }
 }

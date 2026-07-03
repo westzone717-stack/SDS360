@@ -204,4 +204,5 @@ export interface SessionUser {
   customerId?: string;
   status: UserStatus;
   trainingRequired: boolean;
+  forcePasswordChange: boolean;
 }

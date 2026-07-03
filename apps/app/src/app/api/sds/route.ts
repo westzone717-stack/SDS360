@@ -16,12 +16,23 @@ export async function GET(req: Request) {
 
   await connectDb();
 
+  const reviewStatusParam = searchParams.get('reviewStatus');
+  const isAdmin = session.user.role === 'admin';
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const filter: Record<string, any> = {
     customerId: session.user.customerId,
     status: 'active',
-    reviewStatus: 'human_approved',
   };
+
+  if (isAdmin) {
+    // Admin sees all review statuses by default; can narrow with ?reviewStatus=
+    if (reviewStatusParam) filter.reviewStatus = reviewStatusParam;
+    // else: no reviewStatus filter → admin sees pending + ai_approved + human_approved
+  } else {
+    filter.reviewStatus = 'human_approved';
+  }
+
   if (q) filter.$text = { $search: q };
   if (hazard) filter.hazardLevel = hazard;
 

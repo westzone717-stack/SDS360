@@ -17,9 +17,9 @@ function buildNav(role: UserRole) {
   if (role === 'admin') {
     items.push(
       { href: '/sds/upload', label: 'Upload SDS' },
-      { href: '/training', label: 'Training' },
-      { href: '/users', label: 'Users' },
-      { href: '/settings', label: 'Settings' }
+      { href: '/training', label: 'Training Dashboard' },
+      { href: '/training/quiz-bank', label: 'Quiz Bank' },
+      { href: '/users', label: 'Users' }
     );
   }
 
@@ -32,7 +32,8 @@ function buildNav(role: UserRole) {
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const session = await auth();
-  if (!session) redirect('/login');
+  // Redirect if session is missing or has an invalid/stale JWT (role undefined)
+  if (!session?.user?.id || !session.user.role) redirect('/login');
 
   const nav = buildNav(session.user.role);
 

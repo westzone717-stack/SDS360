@@ -1,6 +1,7 @@
 import { auth } from '@/lib/auth';
 import { redirect } from 'next/navigation';
 import { connectDb, UserModel } from '@sds360/db';
+import mongoose from 'mongoose';
 import type { UserRole, UserStatus } from '@sds360/types';
 
 const roleBadge: Record<UserRole, string> = {
@@ -18,7 +19,7 @@ const statusBadge: Record<UserStatus, string> = {
 
 async function getUsers(customerId: string) {
   await connectDb();
-  return UserModel.find({ customerId })
+  return UserModel.find({ customerId: new mongoose.Types.ObjectId(customerId) })
     .select('name email role status department createdAt')
     .sort({ role: 1, createdAt: -1 })
     .lean();

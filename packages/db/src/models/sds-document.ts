@@ -61,6 +61,7 @@ const SdsDocumentSchema = new Schema(
     sections: { type: sectionsDefinition },
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
+    contentHash: { type: String },
   },
   { timestamps: true }
 );
@@ -69,6 +70,7 @@ SdsDocumentSchema.index({ customerId: 1, status: 1, isActive: 1 });
 SdsDocumentSchema.index({ customerId: 1, productName: 'text', casNumber: 'text' });
 SdsDocumentSchema.index({ customerId: 1, hazardLevel: 1 });
 SdsDocumentSchema.index({ customerId: 1, createdAt: -1 });
+SdsDocumentSchema.index({ customerId: 1, contentHash: 1 }, { unique: true, sparse: true });
 
 export const SdsDocumentModel =
   mongoose.models.SdsDocument ||

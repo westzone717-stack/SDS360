@@ -29,6 +29,7 @@ export const authConfig: NextAuthConfig = {
         token.customerId = u.customerId;
         token.status = u.status;
         token.trainingRequired = u.trainingRequired;
+        token.forcePasswordChange = u.forcePasswordChange;
       }
       return token;
     },
@@ -42,6 +43,7 @@ export const authConfig: NextAuthConfig = {
         customerId: token.customerId,
         status: token.status,
         trainingRequired: token.trainingRequired ?? false,
+        forcePasswordChange: token.forcePasswordChange ?? false,
       };
       return session;
     },

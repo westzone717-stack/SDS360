@@ -6,6 +6,7 @@ import { signOut } from '@/lib/auth';
 const navItems = [
   { href: '/dashboard', label: 'Overview' },
   { href: '/dashboard/customers', label: 'Customers' },
+  { href: '/dashboard/ai-monitor', label: 'AI Monitor' },
   { href: '/dashboard/audit-logs', label: 'Audit Logs' },
 ];
 

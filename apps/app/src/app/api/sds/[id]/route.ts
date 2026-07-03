@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel, AuditLogModel } from '@sds360/db';
-import type { SdsDocumentDoc } from '@sds360/db';
 import { getPresignedDownloadUrl } from '@/lib/s3';
 import { z } from 'zod';
+import mongoose from 'mongoose';
 
 export async function GET(req: Request, { params }: { params: { id: string } }) {
   const session = await auth();
@@ -12,29 +12,43 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   }
 
   await connectDb();
+
+  // .lean() returns plain JS object — required so React can spread it safely
   const doc = await SdsDocumentModel.findOne({
     _id: params.id,
-    customerId: session.user.customerId,
+    customerId: new mongoose.Types.ObjectId(session.user.customerId),
     status: { $ne: 'deleted' },
-  }) as SdsDocumentDoc | null;
+  }).lean();
 
   if (!doc) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 
   // Attach download URL if client asks
   const { searchParams } = new URL(req.url);
   if (searchParams.get('download') === '1') {
-    const downloadUrl = await getPresignedDownloadUrl(doc.s3Key);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const downloadUrl = await getPresignedDownloadUrl((doc as any).s3Key);
     return NextResponse.json({ success: true, data: { ...doc, downloadUrl } });
   }
 
   return NextResponse.json({ success: true, data: doc });
 }
 
+const SDS_SECTION_KEYS = [
+  'identification', 'hazardIdentification', 'composition', 'firstAidMeasures',
+  'fireFightingMeasures', 'accidentalReleaseMeasures', 'handlingAndStorage',
+  'exposureControls', 'physicalAndChemicalProperties', 'stabilityAndReactivity',
+  'toxicologicalInformation', 'ecologicalInformation', 'disposalConsiderations',
+  'transportInformation', 'regulatoryInformation', 'otherInformation',
+] as const;
+
 const updateSchema = z.object({
   status: z.enum(['active', 'deactivated', 'deleted']).optional(),
   productName: z.string().optional(),
   casNumber: z.string().optional(),
   hazardLevel: z.enum(['extreme', 'high', 'medium', 'low']).optional(),
+  // Inline section editing
+  sectionKey: z.enum(SDS_SECTION_KEYS).optional(),
+  sectionContent: z.string().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
@@ -48,12 +62,21 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   try {
     const body = await req.json() as unknown;
-    const updates = updateSchema.parse(body);
+    const { sectionKey, sectionContent, ...topLevelUpdates } = updateSchema.parse(body);
 
     await connectDb();
+
+    // Build the MongoDB $set payload
+    const setPayload: Record<string, unknown> = { ...topLevelUpdates };
+    if (sectionKey !== undefined && sectionContent !== undefined) {
+      setPayload[`sections.${sectionKey}.content`] = sectionContent;
+      setPayload[`sections.${sectionKey}.fieldStatus`] = 'human_approved';
+      setPayload[`sections.${sectionKey}.confidence`] = 1.0;
+    }
+
     const doc = await SdsDocumentModel.findOneAndUpdate(
       { _id: params.id, customerId: session.user.customerId },
-      updates,
+      { $set: setPayload },
       { new: true }
     ).lean();
 
@@ -67,7 +90,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       action: 'update',
       resource: 'sds_document',
       resourceId: params.id,
-      after: updates,
+      after: sectionKey ? { sectionKey, sectionContent } : topLevelUpdates,
     });
 
     return NextResponse.json({ success: true, data: doc });

@@ -1,6 +1,6 @@
 import type { SdsExtractionResult, QuizGenerationResult } from './types';
 
-const SDS_SECTIONS = [
+export const SDS_SECTIONS = [
   'identification', 'hazardIdentification', 'composition', 'firstAidMeasures',
   'fireFightingMeasures', 'accidentalReleaseMeasures', 'handlingAndStorage',
   'exposureControls', 'physicalAndChemicalProperties', 'stabilityAndReactivity',
@@ -8,28 +8,69 @@ const SDS_SECTIONS = [
   'transportInformation', 'regulatoryInformation', 'otherInformation',
 ];
 
-export function buildSdsPrompt(documentText: string): string {
-  return `You are a hazardous materials safety expert. Extract all 16 GHS SDS sections from the following document text. For each section, provide:
-- content: the extracted text (empty string if missing)
-- confidence: a float 0.0–1.0 representing extraction confidence
-- sourceLocation: { page: number, excerpt: string } for the source passage
+// Split 16 sections into 4 batches of 4 to keep each LLM response under the token limit
+export const SDS_SECTION_BATCHES: string[][] = [
+  SDS_SECTIONS.slice(0, 4),
+  SDS_SECTIONS.slice(4, 8),
+  SDS_SECTIONS.slice(8, 12),
+  SDS_SECTIONS.slice(12, 16),
+];
 
-Return a JSON object with keys: ${SDS_SECTIONS.join(', ')}
+const SECTION_HUMAN_LABELS: Record<string, string> = {
+  identification: '1. Identification (product name, manufacturer, emergency contact, intended use)',
+  hazardIdentification: '2. Hazard(s) Identification (GHS classification, signal word, hazard statements, precautions, pictograms)',
+  composition: '3. Composition / Ingredients (chemical names, CAS numbers, concentration, impurities)',
+  firstAidMeasures: '4. First-Aid Measures (inhalation, skin, eyes, ingestion procedures)',
+  fireFightingMeasures: '5. Fire-Fighting Measures (suitable extinguishers, special hazards, PPE)',
+  accidentalReleaseMeasures: '6. Accidental Release Measures (personal protection, containment, cleanup)',
+  handlingAndStorage: '7. Handling and Storage (safe handling, storage conditions, incompatibles)',
+  exposureControls: '8. Exposure Controls / Personal Protection (OEL, engineering controls, PPE)',
+  physicalAndChemicalProperties: '9. Physical and Chemical Properties (appearance, pH, flash point, boiling point, etc.)',
+  stabilityAndReactivity: '10. Stability and Reactivity (stability, hazardous reactions, conditions to avoid, decomposition)',
+  toxicologicalInformation: '11. Toxicological Information (LD50, LC50, acute/chronic toxicity, carcinogenicity)',
+  ecologicalInformation: '12. Ecological Information (aquatic toxicity, persistence, bioaccumulation)',
+  disposalConsiderations: '13. Disposal Considerations (waste treatment, contaminated packaging, regulations)',
+  transportInformation: '14. Transport Information (UN number, proper shipping name, hazard class, packing group)',
+  regulatoryInformation: '15. Regulatory Information (applicable safety/health/environmental regulations)',
+  otherInformation: '16. Other Information (revision history, references, additional notes)',
+};
 
-Each value must be: { "content": "...", "confidence": 0.0–1.0, "sourceLocation": { "page": 1, "excerpt": "..." } }
+export function buildSdsPrompt(documentText: string, sectionsSubset?: string[]): string {
+  const targetSections = sectionsSubset ?? SDS_SECTIONS;
+  const sectionList = targetSections.map((k) => `- ${k}: ${SECTION_HUMAN_LABELS[k] ?? k}`).join('\n');
 
-If a section is missing from the document, set confidence to 0 and content to "".
+  return `You are a hazardous materials safety expert. Extract the following GHS SDS sections from the document text below.
+
+Sections to extract (${targetSections.length} total):
+${sectionList}
+
+For each section provide:
+- content: the extracted text from the document (empty string "" if section is missing)
+- confidence: a float 0.0–1.0 (0.0 if missing, 0.85+ if clearly found, lower if unclear)
+- sourceLocation: { page: number, excerpt: string } — page number and a short ~50 char snippet from the source
+
+Return a JSON object with EXACTLY these top-level keys: ${targetSections.join(', ')}
+Each value: { "content": "...", "confidence": 0.0–1.0, "sourceLocation": { "page": 1, "excerpt": "..." } }
 
 Document text:
 ---
 ${documentText}
 ---
 
-Respond with valid JSON only, no markdown.`;
+Respond with valid JSON only, no markdown, no commentary.`;
 }
 
-export function buildQuizPrompt(sdsContent: string): string {
-  return `You are a workplace safety training expert. Generate 5 multiple-choice quiz questions based on this Safety Data Sheet content. Each question must test knowledge critical for employee safety.
+export function buildQuizPrompt(
+  sdsContent: string,
+  count = 5,
+  existingQuestions: string[] = [],
+): string {
+  const avoidBlock =
+    existingQuestions.length > 0
+      ? `\n\nIMPORTANT — The following questions already exist in the quiz bank. Do NOT generate similar or duplicate questions:\n${existingQuestions.map((q, i) => `${i + 1}. ${q}`).join('\n')}\n`
+      : '';
+
+  return `You are a workplace safety training expert. Generate ${count} multiple-choice quiz questions based on this Safety Data Sheet content. Each question must test knowledge critical for employee safety.${avoidBlock}
 
 For each question provide:
 - question: the question text
@@ -44,14 +85,15 @@ SDS Content:
 ${sdsContent}
 ---
 
-Return a JSON object with key "questions" containing an array of 5 question objects. Respond with valid JSON only.`;
+Return a JSON object with key "questions" containing an array of exactly ${count} question objects. Respond with valid JSON only.`;
 }
 
-export function parseSdsResponse(text: string): Pick<SdsExtractionResult, 'sections'> {
+export function parseSdsResponse(text: string, sectionsSubset?: string[]): Pick<SdsExtractionResult, 'sections'> {
+  const targetSections = sectionsSubset ?? SDS_SECTIONS;
   try {
     const raw = JSON.parse(text);
     const sections: SdsExtractionResult['sections'] = {};
-    for (const key of SDS_SECTIONS) {
+    for (const key of targetSections) {
       const val = raw[key] ?? {};
       sections[key] = {
         content: String(val.content ?? ''),
@@ -61,9 +103,8 @@ export function parseSdsResponse(text: string): Pick<SdsExtractionResult, 'secti
     }
     return { sections };
   } catch {
-    // Return all sections with zero confidence on parse failure
     const sections: SdsExtractionResult['sections'] = {};
-    for (const key of SDS_SECTIONS) {
+    for (const key of targetSections) {
       sections[key] = { content: '', confidence: 0 };
     }
     return { sections };

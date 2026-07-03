@@ -7,10 +7,16 @@ import mongoose from 'mongoose';
 
 const schema = z.object({
   filename: z.string().min(1),
-  contentType: z.enum(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg']),
+  contentType: z.enum([
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'image/png',
+    'image/jpeg',
+  ]),
+  contentHash: z.string().length(64), // SHA-256 hex
 });
 
-const ALLOWED_TYPES = new Set(['application/pdf', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/png', 'image/jpeg']);
+const IS_DEV_S3 = process.env.AWS_ACCESS_KEY_ID === 'placeholder';
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -18,31 +24,55 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
   if (session.user.role !== 'admin') {
-    return NextResponse.json({ success: false, error: 'Forbidden — upload requires Admin role' }, { status: 403 });
+    return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
 
   try {
     const body = await req.json() as unknown;
-    const { filename, contentType } = schema.parse(body);
+    const { filename, contentType, contentHash } = schema.parse(body);
 
     await connectDb();
 
-    // Create a placeholder document record to get an ID
+    // Reject duplicate documents (same file content already in library)
+    const duplicate = await SdsDocumentModel.findOne({
+      customerId: session.user.customerId,
+      contentHash,
+      status: { $ne: 'deleted' },
+    }).select('productName').lean<{ productName: string }>();
+    if (duplicate) {
+      return NextResponse.json(
+        { success: false, error: `This document is already in the library as "${duplicate.productName}".` },
+        { status: 409 }
+      );
+    }
+
     const docId = new mongoose.Types.ObjectId().toString();
     const s3Key = sdsS3Key(session.user.customerId, docId, filename);
 
-    const { url, fields } = await getPresignedUploadUrl(s3Key, contentType);
+    let url: string;
+    let fields: Record<string, string>;
 
-    // Create pending SDS document
+    if (IS_DEV_S3) {
+      // Dev mode: upload directly to local server instead of S3
+      const appUrl = process.env.APP_URL ?? 'http://localhost:3000';
+      url = `${appUrl}/api/sds/dev-upload`;
+      fields = { docId, key: s3Key };
+    } else {
+      const result = await getPresignedUploadUrl(s3Key, contentType);
+      url = result.url;
+      fields = result.fields;
+    }
+
     await SdsDocumentModel.create({
       _id: docId,
       customerId: session.user.customerId,
       productName: filename.replace(/\.[^.]+$/, ''),
       s3Key,
-      s3Bucket: process.env.AWS_S3_BUCKET!,
+      s3Bucket: process.env.AWS_S3_BUCKET ?? 'local',
       status: 'active',
       reviewStatus: 'pending',
       uploadedBy: session.user.id,
+      contentHash,
     });
 
     return NextResponse.json({ success: true, data: { url, fields, docId } });
