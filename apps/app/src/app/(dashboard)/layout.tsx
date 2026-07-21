@@ -12,6 +12,7 @@ function buildNav(role: UserRole) {
 
   if (role === 'user') {
     items.push({ href: '/training', label: 'My Training' });
+    items.push({ href: '/analysis', label: 'Analysis' });
   }
 
   if (role === 'admin') {
@@ -19,6 +20,7 @@ function buildNav(role: UserRole) {
       { href: '/sds/upload', label: 'Upload SDS' },
       { href: '/training', label: 'Training Dashboard' },
       { href: '/training/quiz-bank', label: 'Quiz Bank' },
+      { href: '/analysis', label: 'Analysis' },
       { href: '/users', label: 'Users' }
     );
   }

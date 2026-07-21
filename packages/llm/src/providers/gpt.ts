@@ -1,28 +1,27 @@
 import OpenAI from 'openai';
-import type { TaskType, LlmResult, SdsExtractionResult, QuizGenerationOptions } from '../types';
-import {
-  buildSdsPrompt,
-  buildQuizPrompt,
-  parseSdsResponse,
-  parseQuizResponse,
-  SDS_SECTION_BATCHES,
-} from '../prompts';
+import type { TaskType, LlmResult, QuizGenerationOptions, SdsExtractionResult } from '../types';
+import { buildQuizPrompt, parseQuizResponse } from '../prompts';
+import { extractSectionsBatched } from '../batch-extract';
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// Lazily constructed — see comment in claude.ts for why (dotenv load-order).
+let _client: OpenAI | undefined;
+function getClient(): OpenAI {
+  _client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  return _client;
+}
 
 const MODEL = 'gpt-4o-mini';
-const MAX_TOKENS_PER_BATCH = 8192;
+const MAX_TOKENS = 8192;
 
-async function callOnce(prompt: string, maxTokens: number): Promise<string> {
-  const completion = await client.chat.completions.create({
+async function callOnce(prompt: string): Promise<string> {
+  const completion = await getClient().chat.completions.create({
     model: MODEL,
-    max_tokens: maxTokens,
+    max_tokens: MAX_TOKENS,
     messages: [{ role: 'user', content: prompt }],
     response_format: { type: 'json_object' },
   });
   const text = completion.choices[0]?.message?.content ?? '{}';
   const finish = completion.choices[0]?.finish_reason;
-  console.log(`[GPT] model=${MODEL} finish=${finish} len=${text.length}`);
   if (finish === 'length') {
     console.warn('[GPT] Output truncated — JSON may be incomplete');
   }
@@ -35,30 +34,20 @@ export async function callGpt(
   quizOptions?: QuizGenerationOptions,
 ): Promise<LlmResult> {
   if (task === 'sds_extraction') {
-    // Batch extract 16 sections across 4 parallel calls (4 sections each)
-    const documentText = prompt;
-    const batchResults = await Promise.all(
-      SDS_SECTION_BATCHES.map(async (batch) => {
-        const subPrompt = buildSdsPrompt(documentText, batch);
-        const text = await callOnce(subPrompt, MAX_TOKENS_PER_BATCH);
-        return parseSdsResponse(text, batch).sections;
-      })
-    );
+    const sections = await extractSectionsBatched('gpt', prompt, callOnce);
 
-    // Merge all 4 batch results into a single sections object
-    const mergedSections: SdsExtractionResult['sections'] = {};
-    for (const batchSections of batchResults) {
-      Object.assign(mergedSections, batchSections);
-    }
+    const fieldCount = Object.values(sections)
+      .flatMap((s) => Object.values(s.subsections))
+      .flatMap((sub) => Object.values(sub.fields));
+    const nonEmptyCount = fieldCount.filter((f) => f.content.length > 0).length;
+    console.log(`[GPT] SDS extraction complete — ${Object.keys(sections).length} sections, ` +
+      `${fieldCount.length} fields, ${nonEmptyCount} non-empty`);
 
-    console.log(`[GPT] SDS extraction complete — ${Object.keys(mergedSections).length} sections, ` +
-      `${Object.values(mergedSections).filter((s) => s.content.length > 0).length} non-empty`);
-
-    return { sections: mergedSections, modelUsed: 'gpt', confidenceAdjusted: false };
+    return { sections, modelUsed: 'gpt', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
 
   // quiz_generation — single call
   const fullPrompt = buildQuizPrompt(prompt, quizOptions?.count ?? 5, quizOptions?.existingQuestions ?? []);
-  const text = await callOnce(fullPrompt, MAX_TOKENS_PER_BATCH);
+  const text = await callOnce(fullPrompt);
   return { ...parseQuizResponse(text), modelUsed: 'gpt', forceReview: false };
 }

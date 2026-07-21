@@ -64,7 +64,14 @@ export async function POST(req: Request) {
     const queue = new Queue('sds-extraction', {
       connection: { host: new URL(redisUrl).hostname, port: Number(new URL(redisUrl).port) || 6379 },
     });
-    await queue.add('extract', { docId, customerId: session.user.customerId });
+    // attempts/backoff are job options (read by BullMQ from queue.add), not
+    // Worker options — they were previously (and uselessly) set on the Worker
+    // constructor in workers/src/index.ts, so failed extractions never
+    // actually retried despite looking configured to.
+    await queue.add('extract', { docId, customerId: session.user.customerId }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+    });
 
     return NextResponse.json({ success: true });
   } catch (err) {

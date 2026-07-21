@@ -3,32 +3,9 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-
-const SECTION_LABELS: Record<string, string> = {
-  identification: '1. Identification',
-  hazardIdentification: '2. Hazard(s) Identification',
-  composition: '3. Composition / Ingredients',
-  firstAidMeasures: '4. First-Aid Measures',
-  fireFightingMeasures: '5. Fire-Fighting Measures',
-  accidentalReleaseMeasures: '6. Accidental Release Measures',
-  handlingAndStorage: '7. Handling and Storage',
-  exposureControls: '8. Exposure Controls / Personal Protection',
-  physicalAndChemicalProperties: '9. Physical & Chemical Properties',
-  stabilityAndReactivity: '10. Stability and Reactivity',
-  toxicologicalInformation: '11. Toxicological Information',
-  ecologicalInformation: '12. Ecological Information',
-  disposalConsiderations: '13. Disposal Considerations',
-  transportInformation: '14. Transport Information',
-  regulatoryInformation: '15. Regulatory Information',
-  otherInformation: '16. Other Information',
-};
-
-interface SdsSection {
-  content: string;
-  confidence: number;
-  fieldStatus: 'pending' | 'ai_approved' | 'human_approved';
-  sourceLocation?: { page: number; excerpt: string };
-}
+import { SDS_SCHEMA } from '../sds-sections';
+import type { SdsSectionsMap, SdsFieldData } from '../sds-sections';
+import { PdfViewer } from './PdfViewer';
 
 interface SdsDoc {
   _id: string;
@@ -38,9 +15,11 @@ interface SdsDoc {
   reviewStatus: string;
   modelUsed: string;
   s3Key: string;
-  sections: Record<string, SdsSection>;
+  sections: SdsSectionsMap;
   downloadUrl?: string;
 }
+
+const EMPTY_FIELD: SdsFieldData = { content: '', confidence: 0, fieldStatus: 'pending' };
 
 function confidenceColor(c: number) {
   if (c >= 0.85) return 'text-green-600 bg-green-50 border-green-200';
@@ -54,12 +33,16 @@ function confidenceLabel(c: number) {
   return 'Review required';
 }
 
+function fieldPath(sectionKey: string, subsectionKey: string, fieldKey: string) {
+  return `${sectionKey}.${subsectionKey}.${fieldKey}`;
+}
+
 export default function SdsReviewPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [doc, setDoc] = useState<SdsDoc | null>(null);
-  const [sections, setSections] = useState<Record<string, SdsSection>>({});
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [sections, setSections] = useState<SdsSectionsMap>({});
+  const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -70,14 +53,7 @@ export default function SdsReviewPage() {
       .then((d: { success: boolean; data?: SdsDoc }) => {
         if (d.success && d.data) {
           setDoc(d.data);
-          const initial = d.data.sections ?? {};
-          setSections(initial);
-          // Auto-expand low-confidence sections
-          const exp: Record<string, boolean> = {};
-          for (const [key, sec] of Object.entries(initial)) {
-            exp[key] = (sec as SdsSection).confidence < 0.85;
-          }
-          setExpanded(exp);
+          setSections(d.data.sections ?? {});
         } else {
           setError('Failed to load SDS document.');
         }
@@ -85,20 +61,44 @@ export default function SdsReviewPage() {
       });
   }, [params.id]);
 
-  function updateSection(key: string, field: Partial<SdsSection>) {
-    setSections((prev) => ({ ...prev, [key]: { ...prev[key], ...field } }));
+  function getField(sectionKey: string, subsectionKey: string, fieldKey: string): SdsFieldData {
+    return sections[sectionKey]?.subsections?.[subsectionKey]?.fields?.[fieldKey] ?? EMPTY_FIELD;
   }
 
-  function approveField(key: string) {
-    updateSection(key, { fieldStatus: 'human_approved' });
+  function updateField(sectionKey: string, subsectionKey: string, fieldKey: string, patch: Partial<SdsFieldData>) {
+    setSections((prev) => {
+      const next = structuredClone(prev);
+      next[sectionKey] ??= { subsections: {} };
+      next[sectionKey].subsections[subsectionKey] ??= { fields: {} };
+      const current = next[sectionKey].subsections[subsectionKey].fields[fieldKey] ?? EMPTY_FIELD;
+      next[sectionKey].subsections[subsectionKey].fields[fieldKey] = { ...current, ...patch };
+      return next;
+    });
+  }
+
+  function approveField(sectionKey: string, subsectionKey: string, fieldKey: string) {
+    updateField(sectionKey, subsectionKey, fieldKey, { fieldStatus: 'human_approved' });
   }
 
   function approveAll() {
     setSections((prev) => {
-      const next = { ...prev };
-      for (const key of Object.keys(next)) {
-        next[key] = { ...next[key], fieldStatus: 'human_approved' };
+      const next = structuredClone(prev);
+      for (const section of Object.values(next)) {
+        for (const sub of Object.values(section.subsections)) {
+          for (const key of Object.keys(sub.fields)) {
+            sub.fields[key] = { ...sub.fields[key], fieldStatus: 'human_approved' };
+          }
+        }
       }
+      return next;
+    });
+  }
+
+  function toggleField(path: string) {
+    setExpandedFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
       return next;
     });
   }
@@ -126,7 +126,10 @@ export default function SdsReviewPage() {
   if (error) return <div className="text-center py-20 text-red-500">{error}</div>;
   if (!doc) return null;
 
-  const allApproved = Object.values(sections).every((s) => s.fieldStatus === 'human_approved');
+  const allFields = SDS_SCHEMA.flatMap((section) =>
+    section.subsections.flatMap((sub) => sub.fields.map((f) => getField(section.key, sub.key, f.key)))
+  );
+  const allApproved = allFields.every((f) => f.fieldStatus === 'human_approved');
   const pdfUrl = doc.downloadUrl;
 
   return (
@@ -141,11 +144,7 @@ export default function SdsReviewPage() {
         </div>
         <div className="flex-1 bg-gray-100 rounded-xl border border-gray-200 overflow-hidden">
           {pdfUrl ? (
-            <iframe
-              src={pdfUrl}
-              className="w-full h-full"
-              title="SDS Document PDF"
-            />
+            <PdfViewer fileUrl={pdfUrl} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-400 text-sm">
               PDF preview unavailable
@@ -160,9 +159,7 @@ export default function SdsReviewPage() {
         <div className="mb-3">
           <h1 className="text-xl font-bold text-gray-900">{doc.productName}</h1>
           <div className="flex items-center gap-3 mt-1">
-            {doc.casNumber && (
-              <span className="text-xs text-gray-500 font-mono">CAS: {doc.casNumber}</span>
-            )}
+            {doc.casNumber && <span className="text-xs text-gray-500 font-mono">CAS: {doc.casNumber}</span>}
             <span className="text-xs text-gray-400">Model: {doc.modelUsed}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium capitalize">
               {doc.reviewStatus}
@@ -196,78 +193,94 @@ export default function SdsReviewPage() {
           </button>
         </div>
 
-        {/* Fields */}
-        <div className="flex-1 overflow-y-auto space-y-2">
-          {Object.entries(SECTION_LABELS).map(([key, label]) => {
-            const sec = sections[key];
-            if (!sec) return null;
-            const isExpanded = expanded[key];
-            const needsReview = sec.confidence < 0.85;
+        {/* Field tree: sections + subsections expanded, fields collapsed */}
+        <div className="flex-1 overflow-y-auto space-y-6">
+          {SDS_SCHEMA.map((section) => (
+            <div key={section.key}>
+              <h2 className="text-sm font-bold text-gray-900 mb-2">{section.label}</h2>
+              <div className="space-y-2">
+                {section.subsections.map((sub) => {
+                  const subFields = sub.fields.map((f) => ({ f, data: getField(section.key, sub.key, f.key) }));
+                  const needsReview = subFields.some(({ data }) => data.confidence < 0.85 && data.content);
+                  const allSubApproved = subFields.every(({ data }) => data.fieldStatus === 'human_approved');
 
-            return (
-              <div
-                key={key}
-                className={`bg-white rounded-xl border overflow-hidden ${
-                  sec.fieldStatus === 'human_approved'
-                    ? 'border-green-200'
-                    : needsReview
-                    ? 'border-amber-200'
-                    : 'border-gray-200'
-                }`}
-              >
-                {/* Section header */}
-                <button
-                  className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-                  onClick={() => setExpanded((e) => ({ ...e, [key]: !e[key] }))}
-                >
-                  <span className="text-xs font-semibold text-gray-700 flex-1">{label}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${confidenceColor(sec.confidence)}`}>
-                    {Math.round(sec.confidence * 100)}% · {confidenceLabel(sec.confidence)}
-                  </span>
-                  {sec.fieldStatus === 'human_approved' ? (
-                    <span className="text-green-600 text-xs font-medium">✓ Approved</span>
-                  ) : (
-                    <span className="text-gray-300 text-xs">▼</span>
-                  )}
-                </button>
-
-                {/* Expanded content */}
-                {isExpanded && (
-                  <div className="px-4 pb-4 border-t border-gray-100 pt-3 space-y-3">
-                    {/* Source location */}
-                    {sec.sourceLocation && (
-                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
-                        <span className="font-medium">Source — Page {sec.sourceLocation.page}:</span>{' '}
-                        <span className="italic">{sec.sourceLocation.excerpt}</span>
+                  return (
+                    <div
+                      key={sub.key}
+                      className={`bg-white rounded-xl border overflow-hidden ${
+                        allSubApproved ? 'border-green-200' : needsReview ? 'border-amber-200' : 'border-gray-200'
+                      }`}
+                    >
+                      <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
+                        <h3 className="text-xs font-semibold text-gray-700">{sub.label}</h3>
+                        {allSubApproved && <span className="text-green-600 text-xs font-medium">✓ Approved</span>}
                       </div>
-                    )}
+                      <div className="divide-y divide-gray-50">
+                        {subFields.map(({ f, data }) => {
+                          const path = fieldPath(section.key, sub.key, f.key);
+                          const isExpanded = expandedFields.has(path);
 
-                    {/* Editable content */}
-                    <textarea
-                      value={sec.content}
-                      onChange={(e) => updateSection(key, { content: e.target.value })}
-                      rows={4}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                    />
+                          return (
+                            <div key={f.key}>
+                              <button
+                                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-gray-50 transition-colors"
+                                onClick={() => toggleField(path)}
+                              >
+                                <span className="text-xs text-gray-700 font-medium w-48 shrink-0 truncate">{f.label}</span>
+                                <span className="text-xs text-gray-400 truncate flex-1">
+                                  {data.content || <span className="italic text-gray-300">empty</span>}
+                                </span>
+                                {data.content && (
+                                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${confidenceColor(data.confidence)}`}>
+                                    {Math.round(data.confidence * 100)}%
+                                  </span>
+                                )}
+                                {data.fieldStatus === 'human_approved' ? (
+                                  <span className="text-green-600 text-xs font-medium shrink-0">✓</span>
+                                ) : (
+                                  <span className="text-gray-300 text-xs shrink-0">{isExpanded ? '▲' : '▼'}</span>
+                                )}
+                              </button>
 
-                    {/* Approve field button */}
-                    <div className="flex justify-end">
-                      <button
-                        onClick={() => approveField(key)}
-                        className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                          sec.fieldStatus === 'human_approved'
-                            ? 'bg-green-100 text-green-700 border border-green-300'
-                            : 'bg-white border border-gray-300 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700'
-                        }`}
-                      >
-                        {sec.fieldStatus === 'human_approved' ? '✓ Approved' : 'Approve Field'}
-                      </button>
+                              {isExpanded && (
+                                <div className="px-4 pb-3 pt-1 space-y-2">
+                                  {data.sourceLocation && (
+                                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-xs text-amber-800">
+                                      <span className="font-medium">Source — Page {data.sourceLocation.page}:</span>{' '}
+                                      <span className="italic">{data.sourceLocation.excerpt}</span>
+                                    </div>
+                                  )}
+                                  <p className="text-xs text-gray-400">{confidenceLabel(data.confidence)}</p>
+                                  <textarea
+                                    value={data.content}
+                                    onChange={(e) => updateField(section.key, sub.key, f.key, { content: e.target.value })}
+                                    rows={3}
+                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                                  />
+                                  <div className="flex justify-end">
+                                    <button
+                                      onClick={() => approveField(section.key, sub.key, f.key)}
+                                      className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${
+                                        data.fieldStatus === 'human_approved'
+                                          ? 'bg-green-100 text-green-700 border border-green-300'
+                                          : 'bg-white border border-gray-300 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700'
+                                      }`}
+                                    >
+                                      {data.fieldStatus === 'human_approved' ? '✓ Approved' : 'Approve Field'}
+                                    </button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })}
               </div>
-            );
-          })}
+            </div>
+          ))}
         </div>
       </div>
     </div>

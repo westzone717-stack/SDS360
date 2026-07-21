@@ -33,22 +33,16 @@ export async function GET(req: Request, { params }: { params: { id: string } }) 
   return NextResponse.json({ success: true, data: doc });
 }
 
-const SDS_SECTION_KEYS = [
-  'identification', 'hazardIdentification', 'composition', 'firstAidMeasures',
-  'fireFightingMeasures', 'accidentalReleaseMeasures', 'handlingAndStorage',
-  'exposureControls', 'physicalAndChemicalProperties', 'stabilityAndReactivity',
-  'toxicologicalInformation', 'ecologicalInformation', 'disposalConsiderations',
-  'transportInformation', 'regulatoryInformation', 'otherInformation',
-] as const;
-
 const updateSchema = z.object({
   status: z.enum(['active', 'deactivated', 'deleted']).optional(),
   productName: z.string().optional(),
   casNumber: z.string().optional(),
   hazardLevel: z.enum(['extreme', 'high', 'medium', 'low']).optional(),
-  // Inline section editing
-  sectionKey: z.enum(SDS_SECTION_KEYS).optional(),
-  sectionContent: z.string().optional(),
+  // Inline field editing (3-level: section → subsection → field)
+  sectionKey: z.string().optional(),
+  subsectionKey: z.string().optional(),
+  fieldKey: z.string().optional(),
+  fieldContent: z.string().optional(),
 });
 
 export async function PATCH(req: Request, { params }: { params: { id: string } }) {
@@ -62,16 +56,18 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
 
   try {
     const body = await req.json() as unknown;
-    const { sectionKey, sectionContent, ...topLevelUpdates } = updateSchema.parse(body);
+    const { sectionKey, subsectionKey, fieldKey, fieldContent, ...topLevelUpdates } = updateSchema.parse(body);
 
     await connectDb();
 
     // Build the MongoDB $set payload
     const setPayload: Record<string, unknown> = { ...topLevelUpdates };
-    if (sectionKey !== undefined && sectionContent !== undefined) {
-      setPayload[`sections.${sectionKey}.content`] = sectionContent;
-      setPayload[`sections.${sectionKey}.fieldStatus`] = 'human_approved';
-      setPayload[`sections.${sectionKey}.confidence`] = 1.0;
+    const isFieldEdit = sectionKey && subsectionKey && fieldKey && fieldContent !== undefined;
+    if (isFieldEdit) {
+      const path = `sections.${sectionKey}.subsections.${subsectionKey}.fields.${fieldKey}`;
+      setPayload[`${path}.content`] = fieldContent;
+      setPayload[`${path}.fieldStatus`] = 'human_approved';
+      setPayload[`${path}.confidence`] = 1.0;
     }
 
     const doc = await SdsDocumentModel.findOneAndUpdate(
@@ -90,7 +86,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
       action: 'update',
       resource: 'sds_document',
       resourceId: params.id,
-      after: sectionKey ? { sectionKey, sectionContent } : topLevelUpdates,
+      after: isFieldEdit ? { sectionKey, subsectionKey, fieldKey, fieldContent } : topLevelUpdates,
     });
 
     return NextResponse.json({ success: true, data: doc });

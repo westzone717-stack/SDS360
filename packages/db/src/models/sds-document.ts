@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Types } from 'mongoose';
 import type { SdsDocument } from '@sds360/types';
+import { SDS_SCHEMA } from '@sds360/types';
 
 export interface SdsDocumentDoc extends Omit<SdsDocument, '_id' | 'customerId' | 'uploadedBy' | 'reviewedBy'>, Document {
   customerId: Types.ObjectId | string;
@@ -7,7 +8,8 @@ export interface SdsDocumentDoc extends Omit<SdsDocument, '_id' | 'customerId' |
   reviewedBy?: Types.ObjectId | string;
 }
 
-const SdsSectionSchema = new Schema(
+// Level 3 — a single discrete field (e.g. "Product Name", "Flash Point")
+const SdsFieldSchema = new Schema(
   {
     content: { type: String, default: '' },
     confidence: { type: Number, default: 0, min: 0, max: 1 },
@@ -24,18 +26,18 @@ const SdsSectionSchema = new Schema(
   { _id: false }
 );
 
-const SECTION_KEYS = [
-  'identification', 'hazardIdentification', 'composition', 'firstAidMeasures',
-  'fireFightingMeasures', 'accidentalReleaseMeasures', 'handlingAndStorage',
-  'exposureControls', 'physicalAndChemicalProperties', 'stabilityAndReactivity',
-  'toxicologicalInformation', 'ecologicalInformation', 'disposalConsiderations',
-  'transportInformation', 'regulatoryInformation', 'otherInformation',
-];
-
-const sectionsDefinition = SECTION_KEYS.reduce(
-  (acc, key) => ({ ...acc, [key]: { type: SdsSectionSchema } }),
-  {} as Record<string, unknown>
-);
+// Build the nested sections definition from the canonical SDS_SCHEMA:
+// sections.<sectionKey>.subsections.<subsectionKey>.fields.<fieldKey> = SdsFieldSchema
+const sectionsDefinition = SDS_SCHEMA.reduce((sectionsAcc, section) => {
+  const subsectionsDefinition = section.subsections.reduce((subAcc, sub) => {
+    const fieldsDefinition = sub.fields.reduce(
+      (fieldAcc, field) => ({ ...fieldAcc, [field.key]: { type: SdsFieldSchema, default: () => ({}) } }),
+      {} as Record<string, unknown>
+    );
+    return { ...subAcc, [sub.key]: { fields: fieldsDefinition } };
+  }, {} as Record<string, unknown>);
+  return { ...sectionsAcc, [section.key]: { subsections: subsectionsDefinition } };
+}, {} as Record<string, unknown>);
 
 const SdsDocumentSchema = new Schema(
   {
@@ -58,7 +60,11 @@ const SdsDocumentSchema = new Schema(
       default: 'pending',
     },
     modelUsed: { type: String, enum: ['claude', 'gpt', 'ollama'] },
-    sections: { type: sectionsDefinition },
+    // NOTE: assigned directly (not wrapped in `{ type: sectionsDefinition }`) —
+    // Mongoose auto-detects plain nested objects without a `type` key as
+    // subdocument paths; wrapping the whole thing in `type:` breaks the
+    // recursive path expansion for deeply nested schemas like this one.
+    sections: sectionsDefinition,
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
     contentHash: { type: String },

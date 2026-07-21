@@ -7,8 +7,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { HazardLevel } from '@sds360/types';
 import { SdsSectionsEditor } from './SdsSectionsEditor';
-import { SECTION_KEYS } from './sds-sections';
-import type { SectionData } from './sds-sections';
+import type { SdsSectionsMap } from './sds-sections';
 
 const hazardColors: Record<HazardLevel, string> = {
   extreme: 'border-red-600 bg-red-50',
@@ -30,7 +29,12 @@ async function getSds(
     status: { $ne: 'deleted' },
   };
   if (!isAdmin) filter.reviewStatus = 'human_approved';
-  return SdsDocumentModel.findOne(filter) as Promise<SdsDocumentDoc | null>;
+  // .lean() is required here: the result crosses the Server → Client
+  // Component boundary as props (SdsSectionsEditor). A full Mongoose Document
+  // carries getters/internal `$__` state that React's Flight serializer
+  // recurses into, which blows the call stack on a tree this size (417
+  // fields). lean() strips it down to a plain, serializable object.
+  return SdsDocumentModel.findOne(filter).lean() as Promise<SdsDocumentDoc | null>;
 }
 
 export default async function SdsDetailPage({ params }: { params: { id: string } }) {
@@ -41,17 +45,7 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
 
   const downloadUrl = await getPresignedDownloadUrl(doc.s3Key);
 
-  // Build section data array in order — include all 16 keys for admin, content-only for users
-  const rawSections = (doc.sections ?? {}) as Record<
-    string,
-    { content?: string; confidence?: number; fieldStatus?: string }
-  >;
-  const sectionData: SectionData[] = SECTION_KEYS.map((key) => ({
-    key,
-    content: rawSections[key]?.content ?? '',
-    confidence: rawSections[key]?.confidence ?? 0,
-    fieldStatus: rawSections[key]?.fieldStatus ?? 'pending',
-  }));
+  const sectionsMap = (doc.sections ?? {}) as unknown as SdsSectionsMap;
 
   return (
     <div className="max-w-4xl">
@@ -89,10 +83,10 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
         Hazard Level: <span className="capitalize">{doc.hazardLevel}</span>
       </div>
 
-      {/* 16 Sections — editable for admins */}
+      {/* 16 sections → subsections → fields — editable for admins */}
       <SdsSectionsEditor
         docId={String(doc._id)}
-        initialSections={sectionData}
+        initialSections={sectionsMap}
         isAdmin={isAdmin}
       />
     </div>

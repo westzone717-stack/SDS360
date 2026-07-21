@@ -49,12 +49,10 @@ export type SdsStatus = 'active' | 'deactivated' | 'deleted';
 export type HazardLevel = 'extreme' | 'high' | 'medium' | 'low';
 export type LlmProvider = 'claude' | 'gpt' | 'ollama';
 
-export interface SdsSection {
-  content: string;
-  confidence: number;
-  fieldStatus: 'pending' | 'ai_approved' | 'human_approved';
-  sourceLocation?: { page: number; excerpt: string };
-}
+// Re-exported from sds-schema.ts — the canonical 3-level field definition
+// (16 sections → subsections → discrete fields) plus the nested stored-value shapes.
+export * from './sds-schema';
+import type { SdsSectionsMap } from './sds-schema';
 
 export interface SdsDocument {
   _id: string;
@@ -69,24 +67,7 @@ export interface SdsDocument {
   status: SdsStatus;
   reviewStatus: ReviewStatus;
   modelUsed: LlmProvider;
-  sections: {
-    identification: SdsSection;
-    hazardIdentification: SdsSection;
-    composition: SdsSection;
-    firstAidMeasures: SdsSection;
-    fireFightingMeasures: SdsSection;
-    accidentalReleaseMeasures: SdsSection;
-    handlingAndStorage: SdsSection;
-    exposureControls: SdsSection;
-    physicalAndChemicalProperties: SdsSection;
-    stabilityAndReactivity: SdsSection;
-    toxicologicalInformation: SdsSection;
-    ecologicalInformation: SdsSection;
-    disposalConsiderations: SdsSection;
-    transportInformation: SdsSection;
-    regulatoryInformation: SdsSection;
-    otherInformation: SdsSection;
-  };
+  sections: SdsSectionsMap;
   uploadedBy: string;
   reviewedBy?: string;
   createdAt: Date;
@@ -177,6 +158,49 @@ export interface DeadLetterQueueItem {
   retryCount: number;
   lastError: string;
   resolvedAt?: Date;
+}
+
+// ─── Analysis Agent ───────────────────────────────────────────────────────────
+
+export interface AnalysisPlanStep {
+  id: string;
+  tool?: string;
+  args?: Record<string, unknown>;
+  action?: string;
+}
+
+export interface AnalysisPlan {
+  steps: AnalysisPlanStep[];
+  // Set when the request is ambiguous about which SDS document/product it
+  // refers to (e.g. "this product" with no name given, and more than one
+  // document exists). When set, the agent skips tool execution and report
+  // generation entirely and returns this question back to the user instead.
+  clarificationNeeded?: string;
+}
+
+export interface AnalysisStepResult {
+  id: string;
+  tool?: string;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+export type AnalysisRunStatus = 'completed' | 'failed';
+
+export interface AnalysisRun {
+  _id: string;
+  customerId: string;
+  userId: string;
+  request: string;
+  plan: AnalysisPlan;
+  stepResults: AnalysisStepResult[];
+  report: string;
+  status: AnalysisRunStatus;
+  needsClarification: boolean;
+  candidates?: string[];
+  error?: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 // ─── API Response helpers ──────────────────────────────────────────────────────

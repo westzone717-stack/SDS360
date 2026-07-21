@@ -1,32 +1,42 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { TaskType, LlmResult, QuizGenerationOptions } from '../types';
-import { buildSdsPrompt, buildQuizPrompt, parseSdsResponse, parseQuizResponse } from '../prompts';
+import type { TaskType, LlmResult, QuizGenerationOptions, SdsExtractionResult } from '../types';
+import { buildQuizPrompt, parseQuizResponse } from '../prompts';
+import { extractSectionsBatched } from '../batch-extract';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+// Lazily constructed so process.env.ANTHROPIC_API_KEY is read at call time,
+// not at module-import time — dotenv config() in workers/src/index.ts runs
+// after this module is loaded (ESM import statements are hoisted ahead of
+// it), so a module-top-level `new Anthropic(...)` would capture an empty key.
+let _client: Anthropic | undefined;
+function getClient(): Anthropic {
+  _client ??= new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  return _client;
+}
+
+async function callOnce(prompt: string): Promise<string> {
+  const message = await getClient().messages.create({
+    model: 'claude-sonnet-4-6',
+    max_tokens: 8192,
+    messages: [{ role: 'user', content: prompt }],
+  });
+
+  return message.content
+    .filter((b) => b.type === 'text')
+    .map((b) => (b as { type: 'text'; text: string }).text)
+    .join('');
+}
 
 export async function callClaude(
   prompt: string,
   task: TaskType,
   quizOptions?: QuizGenerationOptions,
 ): Promise<LlmResult> {
-  const fullPrompt =
-    task === 'sds_extraction'
-      ? buildSdsPrompt(prompt)
-      : buildQuizPrompt(prompt, quizOptions?.count ?? 5, quizOptions?.existingQuestions ?? []);
-
-  const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 8192,
-    messages: [{ role: 'user', content: fullPrompt }],
-  });
-
-  const text = message.content
-    .filter((b) => b.type === 'text')
-    .map((b) => (b as { type: 'text'; text: string }).text)
-    .join('');
-
   if (task === 'sds_extraction') {
-    return { ...parseSdsResponse(text), modelUsed: 'claude', confidenceAdjusted: false };
+    const sections = await extractSectionsBatched('claude', prompt, callOnce);
+    return { sections, modelUsed: 'claude', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
+
+  const fullPrompt = buildQuizPrompt(prompt, quizOptions?.count ?? 5, quizOptions?.existingQuestions ?? []);
+  const text = await callOnce(fullPrompt);
   return { ...parseQuizResponse(text), modelUsed: 'claude', forceReview: false };
 }

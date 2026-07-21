@@ -7,7 +7,13 @@ import { adjustConfidence } from './prompts';
 import type { TaskType, LlmResult, ProviderConfig, SdsExtractionResult, QuizGenerationOptions } from './types';
 import { AllProvidersFailedError } from './types';
 
-const TIMEOUT_MS = 90_000;
+// Must exceed the worst case inside extractSectionsBatched: a single section
+// can take up to SECTION_TIMEOUT_MS (60s) plus one retry at the same timeout
+// (another 60s) = 120s, even though all 16 sections run in parallel. This
+// used to be 90s, which was tighter than that worst case — a single slow
+// section could trip THIS outer timeout and mark an otherwise-healthy
+// provider as failed, discarding 15 good results in the process.
+const TIMEOUT_MS = 150_000;
 
 // Use mock as final fallback whenever no real primary (Claude) key is configured
 const IS_DEV_LLM = process.env.ANTHROPIC_API_KEY === 'sk-ant-placeholder';

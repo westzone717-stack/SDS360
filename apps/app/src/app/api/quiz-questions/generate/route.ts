@@ -59,6 +59,9 @@ export async function POST(req: Request) {
       sdsDocumentId,
       customerId: session.user.customerId,
       count: adjustedCount,
+    }, {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
     });
 
     return NextResponse.json({ success: true, data: { queued: true } });

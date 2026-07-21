@@ -1,56 +1,54 @@
 import type { SdsExtractionResult, QuizGenerationResult } from './types';
+import { SDS_SCHEMA, getSdsSection } from '@sds360/types';
+import type { SdsSectionsMap, SdsSectionData } from '@sds360/types';
 
-export const SDS_SECTIONS = [
-  'identification', 'hazardIdentification', 'composition', 'firstAidMeasures',
-  'fireFightingMeasures', 'accidentalReleaseMeasures', 'handlingAndStorage',
-  'exposureControls', 'physicalAndChemicalProperties', 'stabilityAndReactivity',
-  'toxicologicalInformation', 'ecologicalInformation', 'disposalConsiderations',
-  'transportInformation', 'regulatoryInformation', 'otherInformation',
-];
+export const SDS_SECTIONS = SDS_SCHEMA.map((s) => s.key);
 
-// Split 16 sections into 4 batches of 4 to keep each LLM response under the token limit
-export const SDS_SECTION_BATCHES: string[][] = [
-  SDS_SECTIONS.slice(0, 4),
-  SDS_SECTIONS.slice(4, 8),
-  SDS_SECTIONS.slice(8, 12),
-  SDS_SECTIONS.slice(12, 16),
-];
-
-const SECTION_HUMAN_LABELS: Record<string, string> = {
-  identification: '1. Identification (product name, manufacturer, emergency contact, intended use)',
-  hazardIdentification: '2. Hazard(s) Identification (GHS classification, signal word, hazard statements, precautions, pictograms)',
-  composition: '3. Composition / Ingredients (chemical names, CAS numbers, concentration, impurities)',
-  firstAidMeasures: '4. First-Aid Measures (inhalation, skin, eyes, ingestion procedures)',
-  fireFightingMeasures: '5. Fire-Fighting Measures (suitable extinguishers, special hazards, PPE)',
-  accidentalReleaseMeasures: '6. Accidental Release Measures (personal protection, containment, cleanup)',
-  handlingAndStorage: '7. Handling and Storage (safe handling, storage conditions, incompatibles)',
-  exposureControls: '8. Exposure Controls / Personal Protection (OEL, engineering controls, PPE)',
-  physicalAndChemicalProperties: '9. Physical and Chemical Properties (appearance, pH, flash point, boiling point, etc.)',
-  stabilityAndReactivity: '10. Stability and Reactivity (stability, hazardous reactions, conditions to avoid, decomposition)',
-  toxicologicalInformation: '11. Toxicological Information (LD50, LC50, acute/chronic toxicity, carcinogenicity)',
-  ecologicalInformation: '12. Ecological Information (aquatic toxicity, persistence, bioaccumulation)',
-  disposalConsiderations: '13. Disposal Considerations (waste treatment, contaminated packaging, regulations)',
-  transportInformation: '14. Transport Information (UN number, proper shipping name, hazard class, packing group)',
-  regulatoryInformation: '15. Regulatory Information (applicable safety/health/environmental regulations)',
-  otherInformation: '16. Other Information (revision history, references, additional notes)',
-};
+// Each main section (with all its subsections/fields) is extracted in its own
+// LLM call — a single section can already contain 40+ discrete fields, so
+// batching multiple sections together risks truncated JSON output.
+export const SDS_SECTION_BATCHES: string[][] = SDS_SECTIONS.map((k) => [k]);
 
 export function buildSdsPrompt(documentText: string, sectionsSubset?: string[]): string {
-  const targetSections = sectionsSubset ?? SDS_SECTIONS;
-  const sectionList = targetSections.map((k) => `- ${k}: ${SECTION_HUMAN_LABELS[k] ?? k}`).join('\n');
+  const targetKeys = sectionsSubset ?? SDS_SECTIONS;
+  const targetSections = targetKeys.map((k) => getSdsSection(k)).filter((s): s is NonNullable<typeof s> => !!s);
 
-  return `You are a hazardous materials safety expert. Extract the following GHS SDS sections from the document text below.
+  const sectionBlocks = targetSections
+    .map((section) => {
+      const subsectionLines = section.subsections
+        .map((sub) => {
+          const fieldList = sub.fields.map((f) => `${f.key} ("${f.label}")`).join(', ');
+          return `  - ${sub.key} ("${sub.label}"): ${fieldList}`;
+        })
+        .join('\n');
+      return `${section.key} ("${section.label}"):\n${subsectionLines}`;
+    })
+    .join('\n\n');
 
-Sections to extract (${targetSections.length} total):
-${sectionList}
+  const shape = targetSections
+    .map((section) => {
+      const subShape = section.subsections
+        .map((sub) => {
+          const fieldShape = sub.fields.map((f) => `"${f.key}": {"content":"...","confidence":0.0,"sourceLocation":{"page":1,"excerpt":"..."}}`).join(', ');
+          return `"${sub.key}": {${fieldShape}}`;
+        })
+        .join(', ');
+      return `"${section.key}": {${subShape}}`;
+    })
+    .join(', ');
 
-For each section provide:
-- content: the extracted text from the document (empty string "" if section is missing)
+  return `You are a hazardous materials safety expert. Extract the following fields from the GHS Safety Data Sheet document text below.
+
+Fields to extract, grouped by section and subsection:
+${sectionBlocks}
+
+For each field provide:
+- content: the extracted text/value from the document (empty string "" if the field is not present)
 - confidence: a float 0.0–1.0 (0.0 if missing, 0.85+ if clearly found, lower if unclear)
-- sourceLocation: { page: number, excerpt: string } — page number and a short ~50 char snippet from the source
+- sourceLocation: { page: number, excerpt: string } — page number and a short ~50 char snippet from the source (omit if content is empty)
 
-Return a JSON object with EXACTLY these top-level keys: ${targetSections.join(', ')}
-Each value: { "content": "...", "confidence": 0.0–1.0, "sourceLocation": { "page": 1, "excerpt": "..." } }
+Return a single JSON object shaped exactly like this (using the field keys given above):
+{ ${shape} }
 
 Document text:
 ---
@@ -89,26 +87,45 @@ Return a JSON object with key "questions" containing an array of exactly ${count
 }
 
 export function parseSdsResponse(text: string, sectionsSubset?: string[]): Pick<SdsExtractionResult, 'sections'> {
-  const targetSections = sectionsSubset ?? SDS_SECTIONS;
+  const targetKeys = sectionsSubset ?? SDS_SECTIONS;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let raw: Record<string, any> = {};
   try {
-    const raw = JSON.parse(text);
-    const sections: SdsExtractionResult['sections'] = {};
-    for (const key of targetSections) {
-      const val = raw[key] ?? {};
-      sections[key] = {
-        content: String(val.content ?? ''),
-        confidence: Math.max(0, Math.min(1, Number(val.confidence ?? 0))),
-        sourceLocation: val.sourceLocation,
-      };
-    }
-    return { sections };
+    raw = JSON.parse(text);
   } catch {
-    const sections: SdsExtractionResult['sections'] = {};
-    for (const key of targetSections) {
-      sections[key] = { content: '', confidence: 0 };
-    }
-    return { sections };
+    raw = {};
   }
+
+  const sections: SdsSectionsMap = {};
+  for (const key of targetKeys) {
+    const section = getSdsSection(key);
+    if (!section) continue;
+
+    const rawSection = raw[key] ?? {};
+    const sectionData: SdsSectionData = { subsections: {} };
+
+    for (const sub of section.subsections) {
+      const rawSub = rawSection[sub.key] ?? {};
+      const fields: SdsSectionData['subsections'][string]['fields'] = {};
+
+      for (const field of sub.fields) {
+        const val = rawSub[field.key] ?? {};
+        fields[field.key] = {
+          content: String(val.content ?? ''),
+          confidence: Math.max(0, Math.min(1, Number(val.confidence ?? 0))),
+          fieldStatus: 'pending',
+          sourceLocation: val.sourceLocation,
+        };
+      }
+
+      sectionData.subsections[sub.key] = { fields };
+    }
+
+    sections[key] = sectionData;
+  }
+
+  return { sections };
 }
 
 export function parseQuizResponse(text: string): Pick<QuizGenerationResult, 'questions'> {
@@ -125,7 +142,17 @@ export function adjustConfidence(
   sections: SdsExtractionResult['sections'],
   weight: number
 ): SdsExtractionResult['sections'] {
-  return Object.fromEntries(
-    Object.entries(sections).map(([k, v]) => [k, { ...v, confidence: v.confidence * weight }])
-  );
+  const adjusted: SdsSectionsMap = {};
+  for (const [sectionKey, section] of Object.entries(sections)) {
+    const subsections: SdsSectionData['subsections'] = {};
+    for (const [subKey, sub] of Object.entries(section.subsections)) {
+      const fields: SdsSectionData['subsections'][string]['fields'] = {};
+      for (const [fieldKey, field] of Object.entries(sub.fields)) {
+        fields[fieldKey] = { ...field, confidence: field.confidence * weight };
+      }
+      subsections[subKey] = { fields };
+    }
+    adjusted[sectionKey] = { subsections };
+  }
+  return adjusted;
 }

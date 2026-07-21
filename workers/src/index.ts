@@ -74,18 +74,22 @@ const sdsWorker = new Worker(
     try {
       const result = (await routeWithFallback(documentText, 'sds_extraction')) as SdsExtractionResult;
 
-      // Auto-approve high-confidence fields
+      // Auto-approve high-confidence fields, per discrete field (3-level: section → subsection → field)
       const sectionsUpdate: Record<string, unknown> = {};
-      for (const [key, section] of Object.entries(result.sections)) {
-        const fieldStatus = section.confidence >= 0.85
-          ? 'ai_approved'
-          : 'pending';
-        sectionsUpdate[`sections.${key}`] = {
-          content: section.content,
-          confidence: section.confidence,
-          fieldStatus,
-          sourceLocation: section.sourceLocation,
-        };
+      let fieldCount = 0;
+      for (const [sectionKey, section] of Object.entries(result.sections)) {
+        for (const [subKey, sub] of Object.entries(section.subsections)) {
+          for (const [fieldKey, field] of Object.entries(sub.fields)) {
+            const fieldStatus = field.confidence >= 0.85 ? 'ai_approved' : 'pending';
+            sectionsUpdate[`sections.${sectionKey}.subsections.${subKey}.fields.${fieldKey}`] = {
+              content: field.content,
+              confidence: field.confidence,
+              fieldStatus,
+              sourceLocation: field.sourceLocation,
+            };
+            fieldCount++;
+          }
+        }
       }
 
       await SdsDocumentModel.findByIdAndUpdate(docId, {
@@ -94,9 +98,10 @@ const sdsWorker = new Worker(
         reviewStatus: 'pending',
       });
 
-      console.log(`[sds-extraction] Completed docId=${docId} via ${result.modelUsed}`);
+      console.log(`[sds-extraction] Completed docId=${docId} via ${result.modelUsed} — ${fieldCount} fields extracted`);
     } catch (err) {
-      if (err instanceof AllProvidersFailedError) {
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (err instanceof AllProvidersFailedError && isFinalAttempt) {
         await DeadLetterModel.create({
           customerId,
           taskType: 'sds_extraction',
@@ -105,16 +110,17 @@ const sdsWorker = new Worker(
           retryCount: job.attemptsMade,
           lastError: err.message,
         });
-        console.error(`[sds-extraction] All providers failed for docId=${docId} — pushed to DLQ`);
+        console.error(`[sds-extraction] All providers failed for docId=${docId} after ${job.attemptsMade + 1} attempts — pushed to DLQ`);
       }
       throw err;
     }
   },
   {
+    // NOTE: `attempts`/`backoff` are JOB options (BullMQ only reads them from
+    // queue.add(...)), not Worker options — they do nothing here. The real
+    // retry config lives on the producer side, in apps/app's queue.add() call.
     connection: redis,
     concurrency: 3,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
   }
 );
 
@@ -153,9 +159,19 @@ const quizWorker = new Worker(
     const toGenerate = Math.min(count ?? 5, remaining);
     const existingQuestions = existingDocs.map((q) => q.question);
 
-    // Build content summary for quiz generation
-    const sdsContent = Object.entries(doc.sections ?? {})
-      .map(([k, v]: [string, { content: string }]) => `## ${k}\n${v.content}`)
+    // Flatten the nested (section → subsection → field) content into a plain
+    // text summary for quiz generation
+    type FieldRecord = { content: string };
+    type SectionRecord = { subsections: Record<string, { fields: Record<string, FieldRecord> }> };
+    const sdsContent = Object.entries(doc.sections ?? {} as Record<string, SectionRecord>)
+      .map(([sectionKey, section]) => {
+        const fieldLines = Object.values(section.subsections ?? {})
+          .flatMap((sub) => Object.entries(sub.fields ?? {}))
+          .filter(([, field]) => field.content)
+          .map(([fieldKey, field]) => `${fieldKey}: ${field.content}`)
+          .join('\n');
+        return `## ${sectionKey}\n${fieldLines}`;
+      })
       .join('\n\n');
 
     try {
@@ -181,7 +197,8 @@ const quizWorker = new Worker(
 
       console.log(`[quiz-generation] Created ${result.questions.length} questions via ${result.modelUsed}`);
     } catch (err) {
-      if (err instanceof AllProvidersFailedError) {
+      const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
+      if (err instanceof AllProvidersFailedError && isFinalAttempt) {
         await DeadLetterModel.create({
           customerId,
           taskType: 'quiz_generation',
@@ -195,10 +212,9 @@ const quizWorker = new Worker(
     }
   },
   {
+    // See NOTE on sdsWorker above — attempts/backoff belong on queue.add(), not here.
     connection: redis,
     concurrency: 2,
-    attempts: 3,
-    backoff: { type: 'exponential', delay: 5000 },
   }
 );
 

@@ -3,14 +3,19 @@ import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 
+const fieldSchema = z.object({
+  content: z.string(),
+  confidence: z.number(),
+  fieldStatus: z.enum(['pending', 'ai_approved', 'human_approved']),
+});
+
 const reviewSchema = z.object({
-  sections: z.record(
-    z.object({
-      content: z.string(),
-      confidence: z.number(),
-      fieldStatus: z.enum(['pending', 'ai_approved', 'human_approved']),
-    })
-  ),
+  // sections.<sectionKey>.subsections.<subsectionKey>.fields.<fieldKey> = fieldSchema
+  sections: z.record(z.object({
+    subsections: z.record(z.object({
+      fields: z.record(fieldSchema),
+    })),
+  })),
   approved: z.boolean(),
 });
 
@@ -35,10 +40,17 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       isActive: approved,
     };
 
-    // Merge reviewed sections
-    for (const [key, val] of Object.entries(sections)) {
-      update[`sections.${key}.content`] = val.content;
-      update[`sections.${key}.fieldStatus`] = val.fieldStatus;
+    // Merge reviewed fields, 3 levels deep
+    let fieldCount = 0;
+    for (const [sectionKey, section] of Object.entries(sections)) {
+      for (const [subKey, sub] of Object.entries(section.subsections)) {
+        for (const [fieldKey, field] of Object.entries(sub.fields)) {
+          const path = `sections.${sectionKey}.subsections.${subKey}.fields.${fieldKey}`;
+          update[`${path}.content`] = field.content;
+          update[`${path}.fieldStatus`] = field.fieldStatus;
+          fieldCount++;
+        }
+      }
     }
 
     const doc = await SdsDocumentModel.findOneAndUpdate(
@@ -57,7 +69,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       action: approved ? 'activate' : 'update',
       resource: 'sds_document',
       resourceId: params.id,
-      after: { reviewStatus: doc.reviewStatus },
+      after: { reviewStatus: doc.reviewStatus, fieldCount },
     });
 
     return NextResponse.json({ success: true, data: doc });
