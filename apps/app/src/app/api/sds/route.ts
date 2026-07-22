@@ -60,9 +60,9 @@ export async function POST(req: Request) {
 
     // Enqueue BullMQ job for LLM extraction
     const { Queue } = await import('bullmq');
-    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+    const { bullmqConnectionOptions } = await import('@/lib/redis');
     const queue = new Queue('sds-extraction', {
-      connection: { host: new URL(redisUrl).hostname, port: Number(new URL(redisUrl).port) || 6379 },
+      connection: bullmqConnectionOptions(),
     });
     // attempts/backoff are job options (read by BullMQ from queue.add), not
     // Worker options — they were previously (and uselessly) set on the Worker

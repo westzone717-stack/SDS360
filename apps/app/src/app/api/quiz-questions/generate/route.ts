@@ -51,9 +51,9 @@ export async function POST(req: Request) {
     const adjustedCount = Math.min(count, MAX_QUESTIONS - existingCount);
 
     const { Queue } = await import('bullmq');
-    const redisUrl = process.env.REDIS_URL ?? 'redis://localhost:6379';
+    const { bullmqConnectionOptions } = await import('@/lib/redis');
     const queue = new Queue('quiz-generation', {
-      connection: { host: new URL(redisUrl).hostname, port: Number(new URL(redisUrl).port) || 6379 },
+      connection: bullmqConnectionOptions(),
     });
     await queue.add('generate', {
       sdsDocumentId,

@@ -23,6 +23,9 @@ importers:
       '@sds360/db':
         specifier: workspace:*
         version: link:../../packages/db
+      '@sds360/llm':
+        specifier: workspace:*
+        version: link:../../packages/llm
       '@sds360/types':
         specifier: workspace:*
         version: link:../../packages/types

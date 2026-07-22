@@ -3,6 +3,7 @@ import { connectDb, SdsDocumentModel } from '@sds360/db';
 import type { AnalysisPlan, AnalysisStepResult } from '@sds360/types';
 import { TOOL_REGISTRY, getToolManifest } from './tools';
 import { generateAnalysisPlan, generateAnalysisReport } from './llm';
+import { analysisDebugLog } from './debug-log';
 
 // A lightweight name-only index handed to the plan-generation prompt so the
 // LLM can tell whether "this product"/"the document" is actually ambiguous
@@ -59,7 +60,7 @@ export async function runAnalysis(customerId: string, userRequest: string): Prom
   const knownProductNames = await getKnownProductNames(customerId);
   const plan = await generateAnalysisPlan(userRequest, toolManifest, knownProductNames);
 
-  console.log(`[analysis] Plan for request "${userRequest}":\n${JSON.stringify(plan, null, 2)}`);
+  analysisDebugLog(`[analysis] Plan for request "${userRequest}":\n${JSON.stringify(plan, null, 2)}`);
 
   // The request named "this/the document" without saying which one, and more
   // than one exists — don't guess or silently mix data across products. Skip
@@ -73,7 +74,7 @@ export async function runAnalysis(customerId: string, userRequest: string): Prom
   // agent verifies, not something the model's prompt-following has to get
   // right on its own.
   if (plan.clarificationNeeded && knownProductNames.length >= 2) {
-    console.log(`[analysis] Ambiguous request — asking user to clarify instead of running the plan: ${plan.clarificationNeeded}`);
+    analysisDebugLog(`[analysis] Ambiguous request — asking user to clarify instead of running the plan: ${plan.clarificationNeeded}`);
     return { plan, stepResults: [], report: plan.clarificationNeeded, needsClarification: true, candidates: knownProductNames };
   }
 
@@ -82,9 +83,9 @@ export async function runAnalysis(customerId: string, userRequest: string): Prom
   // the ambiguity question turned off rather than trying to execute it.
   let effectivePlan = plan;
   if (plan.clarificationNeeded) {
-    console.log(`[analysis] LLM asked for clarification but only ${knownProductNames.length} product(s) exist — regenerating the plan without that option.`);
+    analysisDebugLog(`[analysis] LLM asked for clarification but only ${knownProductNames.length} product(s) exist — regenerating the plan without that option.`);
     effectivePlan = await generateAnalysisPlan(userRequest, toolManifest, knownProductNames, { forceNoClarification: true });
-    console.log(`[analysis] Regenerated plan:\n${JSON.stringify(effectivePlan, null, 2)}`);
+    analysisDebugLog(`[analysis] Regenerated plan:\n${JSON.stringify(effectivePlan, null, 2)}`);
   }
 
   const stepResults: AnalysisStepResult[] = [];
@@ -108,7 +109,7 @@ export async function runAnalysis(customerId: string, userRequest: string): Prom
     }
   }
 
-  console.log(`[analysis] Step results (context handed back to the LLM for report writing):\n${JSON.stringify(stepResults, null, 2)}`);
+  analysisDebugLog(`[analysis] Step results (context handed back to the LLM for report writing):\n${JSON.stringify(stepResults, null, 2)}`);
 
   const report = await generateAnalysisReport(userRequest, stepResults);
 

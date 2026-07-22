@@ -2,9 +2,6 @@ import { NextResponse } from 'next/server';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
-// Allow up to 50 MB body (same as PRD limit)
-export const config = { api: { bodyParser: { sizeLimit: '50mb' } } };
-
 // Dev-only local file storage — replaces S3 presigned POST upload.
 // Files are saved to <project-root>/uploads/<s3Key path>.
 export async function POST(req: Request) {

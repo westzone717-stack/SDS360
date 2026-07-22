@@ -3,6 +3,7 @@ import { createAnthropic } from '@ai-sdk/anthropic';
 import { createOpenAI } from '@ai-sdk/openai';
 import { z } from 'zod';
 import type { AnalysisPlan, AnalysisStepResult } from '@sds360/types';
+import { analysisDebugLog } from './debug-log';
 
 const IS_DEV_LLM = process.env.ANTHROPIC_API_KEY === 'sk-ant-placeholder';
 
@@ -132,7 +133,7 @@ export async function generateAnalysisPlan(
 ): Promise<AnalysisPlan> {
   const prompt = planPrompt(userRequest, toolManifest, knownProductNames, options?.forceNoClarification ?? false);
 
-  console.log(`[analysis] Full plan-generation prompt sent to the LLM:\n${prompt}`);
+  analysisDebugLog(`[analysis] Full plan-generation prompt sent to the LLM:\n${prompt}`);
 
   try {
     const { object } = await generateObject({ model: anthropicModel(), schema: planSchema, prompt });
@@ -166,7 +167,7 @@ export async function generateAnalysisReport(
 ): Promise<string> {
   const prompt = reportPrompt(userRequest, stepResults);
 
-  console.log(`[analysis] Full report-generation prompt sent to the LLM:\n${prompt}`);
+  analysisDebugLog(`[analysis] Full report-generation prompt sent to the LLM:\n${prompt}`);
 
   try {
     const { text } = await generateText({ model: anthropicModel(), prompt });

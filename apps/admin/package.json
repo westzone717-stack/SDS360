@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@sds360/db": "workspace:*",
+    "@sds360/llm": "workspace:*",
     "@sds360/types": "workspace:*",
     "next": "14.2.15",
     "next-auth": "^5.0.0-beta.20",
