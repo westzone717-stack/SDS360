@@ -76,7 +76,14 @@ SdsDocumentSchema.index({ customerId: 1, status: 1, isActive: 1 });
 SdsDocumentSchema.index({ customerId: 1, productName: 'text', casNumber: 'text' });
 SdsDocumentSchema.index({ customerId: 1, hazardLevel: 1 });
 SdsDocumentSchema.index({ customerId: 1, createdAt: -1 });
-SdsDocumentSchema.index({ customerId: 1, contentHash: 1 }, { unique: true, sparse: true });
+// Only enforce hash-uniqueness among live documents — a soft-deleted
+// document's hash must not block re-uploading the same file later.
+// (partialFilterExpression only supports equality/$exists/$gt.../$and, so
+// this covers the 'active' status; 'deactivated' isn't wired up anywhere yet.)
+SdsDocumentSchema.index(
+  { customerId: 1, contentHash: 1 },
+  { unique: true, partialFilterExpression: { status: 'active', contentHash: { $exists: true } } }
+);
 
 export const SdsDocumentModel =
   mongoose.models.SdsDocument ||
