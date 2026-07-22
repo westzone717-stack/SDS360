@@ -70,7 +70,10 @@ export function PdfViewer({ fileUrl }: Props) {
           <Document
             file={fileUrl}
             onLoadSuccess={({ numPages: n }) => setNumPages(n)}
-            onLoadError={() => setError('PDF preview unavailable')}
+            onLoadError={(err) => {
+              console.error('[PdfViewer] failed to load PDF:', err);
+              setError(`PDF preview unavailable: ${err.message}`);
+            }}
             loading={<div className="text-center text-gray-400 text-sm py-10">Loading PDF…</div>}
           >
             {containerWidth > 0 &&
