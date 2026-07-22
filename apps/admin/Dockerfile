@@ -24,6 +24,10 @@ WORKDIR /repo
 COPY --from=deps /repo ./
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# See apps/app/Dockerfile — allowedOrigins is a build-time config, needs the
+# ARG present before `next build`, not just a runtime ECS env var.
+ARG ALLOWED_ORIGINS=localhost:3001
+ENV ALLOWED_ORIGINS=$ALLOWED_ORIGINS
 RUN pnpm --filter @sds360/admin build
 
 # ---- runner: minimal standalone server ------------------------------------

@@ -30,6 +30,12 @@ WORKDIR /repo
 COPY --from=deps /repo ./
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
+# next.config.mjs's experimental.serverActions.allowedOrigins is resolved at
+# `next build` time, not read fresh at container start — a runtime ECS env
+# var has no effect on it. It has to be present here, at build time, via
+# --build-arg ALLOWED_ORIGINS=... on `docker build`.
+ARG ALLOWED_ORIGINS=localhost:3000
+ENV ALLOWED_ORIGINS=$ALLOWED_ORIGINS
 RUN pnpm --filter @sds360/app build
 
 # ---- runner: minimal standalone server ------------------------------------

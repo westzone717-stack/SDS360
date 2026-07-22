@@ -17,6 +17,11 @@ export function bullmqConnectionOptions(redisUrl?: string) {
   return {
     host: url.hostname,
     port: Number(url.port) || 6379,
+    // Managed Redis with an AUTH password (e.g. Upstash's `rediss://default:PASS@host`)
+    // needs these explicitly — unlike `new Redis(url)` which ioredis parses natively,
+    // this options object doesn't get the userinfo portion of the URL for free.
+    ...(url.username ? { username: url.username } : {}),
+    ...(url.password ? { password: url.password } : {}),
     ...(url.protocol === 'rediss:' ? { tls: {} } : {}),
   };
 }

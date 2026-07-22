@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.600.0",
     "@sds360/db": "workspace:*",
     "@sds360/llm": "workspace:*",
     "@sds360/types": "workspace:*",

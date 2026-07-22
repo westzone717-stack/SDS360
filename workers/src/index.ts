@@ -6,6 +6,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 config({ path: resolve(__dirname, '../../.env') });
 import { Worker, Queue } from 'bullmq';
 import Redis from 'ioredis';
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3';
 import { connectDb, SdsDocumentModel, QuizQuestionModel, DeadLetterModel } from '@sds360/db';
 import { routeWithFallback, AllProvidersFailedError } from '@sds360/llm';
 import type { SdsExtractionResult, QuizGenerationResult } from '@sds360/llm';
@@ -13,16 +14,31 @@ import type { SdsExtractionResult, QuizGenerationResult } from '@sds360/llm';
 const UPLOADS_DIR = resolve(__dirname, '../../uploads');
 const IS_DEV_S3 = process.env.AWS_ACCESS_KEY_ID === 'placeholder';
 
-// Extract text from a document. In dev mode reads from local uploads dir;
-// in production fetches from S3 (TODO).
-async function extractDocumentText(s3Key: string): Promise<string> {
-  if (!IS_DEV_S3) {
-    // Production: fetch from S3 — left as TODO since we're in dev mode
-    return `[S3 fetch not implemented for key: ${s3Key}]`;
-  }
+// See apps/app/src/lib/s3.ts — omit `credentials` entirely outside of local
+// dev so the AWS SDK's default provider chain picks up the ECS task's IAM
+// role automatically instead of failing auth.
+const explicitCredentials =
+  process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY }
+    : undefined;
 
-  const filePath = join(UPLOADS_DIR, s3Key);
-  const buffer = await readFile(filePath);
+const s3 = new S3Client({
+  region: process.env.AWS_REGION ?? 'ap-northeast-1',
+  ...(explicitCredentials ? { credentials: explicitCredentials } : {}),
+});
+
+const BUCKET = process.env.AWS_S3_BUCKET ?? 'sds360-documents';
+
+async function readS3Object(key: string): Promise<Buffer> {
+  const result = await s3.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }));
+  const chunks: Buffer[] = [];
+  for await (const chunk of result.Body as AsyncIterable<Buffer>) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
+
+async function extractTextFromBuffer(buffer: Buffer, s3Key: string): Promise<string> {
   const ext = s3Key.split('.').pop()?.toLowerCase();
 
   if (ext === 'pdf') {
@@ -33,11 +49,18 @@ async function extractDocumentText(s3Key: string): Promise<string> {
     return result.text ?? '';
   }
   if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
-    // Image OCR not implemented in dev — fall back to filename
+    // Image OCR not implemented — fall back to filename
     return `[Image SDS — OCR not implemented for ${s3Key}]`;
   }
   // Assume plain text / docx — best-effort decode
   return buffer.toString('utf-8');
+}
+
+// Extract text from a document. Dev mode reads from the local uploads dir;
+// production fetches the object from S3 (via the task's IAM role).
+async function extractDocumentText(s3Key: string): Promise<string> {
+  const buffer = IS_DEV_S3 ? await readFile(join(UPLOADS_DIR, s3Key)) : await readS3Object(s3Key);
+  return extractTextFromBuffer(buffer, s3Key);
 }
 
 const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {

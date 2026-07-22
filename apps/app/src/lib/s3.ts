@@ -2,12 +2,20 @@ import { S3Client, GetObjectCommand, DeleteObjectCommand } from '@aws-sdk/client
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 
+// Only pass explicit static credentials when both are actually set (local
+// dev with real keys, or the 'placeholder' dev-mode sentinel). In ECS/EC2/
+// Lambda, omit `credentials` entirely so the AWS SDK's default provider
+// chain picks up the task's IAM role automatically — passing an explicit
+// (even partially undefined) credentials object short-circuits that
+// discovery and breaks role-based auth.
+const explicitCredentials =
+  process.env.AWS_ACCESS_KEY_ID && process.env.AWS_SECRET_ACCESS_KEY
+    ? { accessKeyId: process.env.AWS_ACCESS_KEY_ID, secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY }
+    : undefined;
+
 const s3 = new S3Client({
   region: process.env.AWS_REGION ?? 'ap-northeast-1',
-  credentials: {
-    accessKeyId: process.env.AWS_ACCESS_KEY_ID!,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY!,
-  },
+  ...(explicitCredentials ? { credentials: explicitCredentials } : {}),
 });
 
 const BUCKET = process.env.AWS_S3_BUCKET ?? 'sds360-documents';
