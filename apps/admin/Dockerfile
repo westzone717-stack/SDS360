@@ -37,8 +37,10 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
-COPY --from=builder /repo/apps/admin/public ./public
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/.next/standalone ./
+# See apps/app/Dockerfile — the standalone server resolves public/ relative
+# to its own directory (apps/admin/), not the container's cwd.
+COPY --from=builder /repo/apps/admin/public ./apps/admin/public
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/admin/.next/static ./apps/admin/.next/static
 
 USER nextjs

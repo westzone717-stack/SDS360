@@ -45,8 +45,11 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 RUN addgroup --system --gid 1001 nodejs && adduser --system --uid 1001 nextjs
 
-COPY --from=builder /repo/apps/app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/app/.next/standalone ./
+# The standalone server (apps/app/server.js) resolves public/ and .next/static
+# relative to its own directory, not the container's cwd — they must sit
+# alongside it at apps/app/, not at the repo-root /app/public.
+COPY --from=builder /repo/apps/app/public ./apps/app/public
 COPY --from=builder --chown=nextjs:nodejs /repo/apps/app/.next/static ./apps/app/.next/static
 
 USER nextjs

@@ -14,7 +14,13 @@ export default auth((req) => {
   const isPublic =
     nextUrl.pathname.startsWith('/login') ||
     nextUrl.pathname.startsWith('/register') ||
-    nextUrl.pathname.startsWith('/api/auth');
+    nextUrl.pathname.startsWith('/api/auth') ||
+    // Static asset served from public/ for the PDF.js worker — it's a
+    // library file, not user data, and must load even mid-redirect (e.g.
+    // dynamically imported by a Worker before any auth-gated navigation
+    // completes). Redirecting it to /login breaks the module fetch: the
+    // browser gets back HTML instead of JS and rejects it outright.
+    nextUrl.pathname === '/pdf.worker.min.mjs';
 
   if (!isLoggedIn && !isPublic) {
     return Response.redirect(new URL('/login', nextUrl));
