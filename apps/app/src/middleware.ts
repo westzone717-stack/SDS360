@@ -54,7 +54,9 @@ export default auth((req) => {
       nextUrl.pathname.startsWith('/training') ||
       nextUrl.pathname.startsWith('/api/training') ||
       nextUrl.pathname.startsWith('/sds') ||
-      nextUrl.pathname.startsWith('/api/sds');
+      nextUrl.pathname.startsWith('/api/sds') ||
+      nextUrl.pathname.startsWith('/analysis') ||
+      nextUrl.pathname.startsWith('/api/analysis');
     if (!isAllowedWithoutTraining && !isPublic) {
       return Response.redirect(new URL('/training', nextUrl));
     }
