@@ -8,6 +8,7 @@ import Link from 'next/link';
 import type { HazardLevel } from '@sds360/types';
 import { SdsSectionsEditor } from './SdsSectionsEditor';
 import type { SdsSectionsMap } from './sds-sections';
+import { DeleteSdsButton } from '../DeleteSdsButton';
 
 const hazardColors: Record<HazardLevel, string> = {
   extreme: 'border-red-600 bg-red-50',
@@ -74,6 +75,9 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
             >
               Review
             </Link>
+          )}
+          {isAdmin && (
+            <DeleteSdsButton id={String(doc._id)} productName={doc.productName} redirectTo="/sds" variant="button" />
           )}
         </div>
       </div>

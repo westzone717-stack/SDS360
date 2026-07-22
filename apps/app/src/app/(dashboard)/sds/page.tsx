@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { HazardLevel } from '@sds360/types';
 import mongoose from 'mongoose';
 import { RefreshOnMount } from '@/components/RefreshOnMount';
+import { DeleteSdsButton } from './DeleteSdsButton';
 
 // Force dynamic rendering — data changes per-user and per-request
 export const dynamic = 'force-dynamic';
@@ -147,12 +148,15 @@ export default async function SdsListPage({
                       </span>
                     </td>
                     <td className="px-4 py-3 text-right">
-                      <Link
-                        href={`/sds/${String(doc._id)}/review`}
-                        className="text-amber-700 hover:text-amber-900 text-xs font-semibold"
-                      >
-                        Review →
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        <Link
+                          href={`/sds/${String(doc._id)}/review`}
+                          className="text-amber-700 hover:text-amber-900 text-xs font-semibold"
+                        >
+                          Review →
+                        </Link>
+                        <DeleteSdsButton id={String(doc._id)} productName={doc.productName} />
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -188,9 +192,12 @@ export default async function SdsListPage({
                   <td className="px-4 py-3 text-gray-500">v{doc.version}</td>
                   <td className="px-4 py-3 text-gray-500">{new Date(doc.createdAt).toLocaleDateString()}</td>
                   <td className="px-4 py-3 text-right">
-                    <Link href={`/sds/${String(doc._id)}`} className="text-blue-600 hover:text-blue-800 text-xs font-medium">
-                      View Details →
-                    </Link>
+                    <div className="flex items-center justify-end gap-3">
+                      <Link href={`/sds/${String(doc._id)}`} className="text-blue-600 hover:text-blue-800 text-xs font-medium">
+                        View Details →
+                      </Link>
+                      {isAdmin && <DeleteSdsButton id={String(doc._id)} productName={doc.productName} />}
+                    </div>
                   </td>
                 </tr>
               ))}
