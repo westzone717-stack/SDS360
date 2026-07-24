@@ -67,6 +67,35 @@ const redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {
   maxRetriesPerRequest: null, // Required for BullMQ
 });
 
+// BullMQ classifies a Redis reply like Upstash's "max requests limit
+// exceeded" as a *non-connection* error (Redis did reply, just with a
+// rejection) — so its own runRetryDelay backoff never kicks in for it, and
+// the Worker's poll loop just immediately retries, hammering the quota-
+// exhausted endpoint indefinitely (observed: ~16 req/s sustained for hours,
+// pure log/latency waste since Upstash doesn't re-count rejected commands).
+// Worker.pause() actually halts the internal poll loop (unlike catching the
+// error), so pausing on this specific error and resuming after a cooldown
+// turns that spin into a slow, quiet retry.
+const QUOTA_ERROR_PATTERN = /max requests limit exceeded/i;
+const QUOTA_COOLDOWN_MS = 10 * 60 * 1000;
+
+function installQuotaBackoff(worker: Worker, label: string) {
+  let coolingDown = false;
+  worker.on('error', (err: unknown) => {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!QUOTA_ERROR_PATTERN.test(message) || coolingDown) return;
+    coolingDown = true;
+    console.error(`[${label}] Redis request quota exceeded — pausing for ${QUOTA_COOLDOWN_MS / 1000}s`);
+    void worker.pause().then(() => {
+      setTimeout(() => {
+        console.log(`[${label}] Resuming after quota cooldown`);
+        coolingDown = false;
+        void worker.resume();
+      }, QUOTA_COOLDOWN_MS);
+    });
+  });
+}
+
 await connectDb();
 console.log('[workers] Connected to MongoDB');
 
@@ -144,8 +173,16 @@ const sdsWorker = new Worker(
     // retry config lives on the producer side, in apps/app's queue.add() call.
     connection: redis,
     concurrency: 3,
+    // Defaults (drainDelay: 5s, stalledInterval: 30s) poll far more often
+    // than this app needs — SDS extraction jobs are neither high-volume nor
+    // latency-sensitive to the second. Widening both cuts the steady-state
+    // Redis request rate substantially, which matters on a request-metered
+    // free tier (see the Upstash quota-exhaustion note above).
+    drainDelay: 30,
+    stalledInterval: 120_000,
   }
 );
+installQuotaBackoff(sdsWorker, 'sds-extraction');
 
 // ─── Quiz Generation Worker ───────────────────────────────────────────────────
 
@@ -236,10 +273,14 @@ const quizWorker = new Worker(
   },
   {
     // See NOTE on sdsWorker above — attempts/backoff belong on queue.add(), not here.
+    // Same drainDelay/stalledInterval widening for the same reason.
     connection: redis,
     concurrency: 2,
+    drainDelay: 30,
+    stalledInterval: 120_000,
   }
 );
+installQuotaBackoff(quizWorker, 'quiz-generation');
 
 sdsWorker.on('completed', (job) => console.log(`[sds-extraction] Job ${job.id} completed`));
 sdsWorker.on('failed', (job, err) => console.error(`[sds-extraction] Job ${job?.id} failed:`, err));
