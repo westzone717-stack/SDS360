@@ -7,8 +7,9 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import type { HazardLevel } from '@sds360/types';
 import { SdsSectionsEditor } from './SdsSectionsEditor';
-import type { SdsSectionsMap } from './sds-sections';
+import type { SdsSectionsMap, SdsMetadata } from './sds-sections';
 import { DeleteSdsButton } from '../DeleteSdsButton';
+import { DownloadFieldsButton } from './DownloadFieldsButton';
 
 const hazardColors: Record<HazardLevel, string> = {
   extreme: 'border-red-600 bg-red-50',
@@ -47,6 +48,14 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
   const downloadUrl = await getPresignedDownloadUrl(doc.s3Key);
 
   const sectionsMap = (doc.sections ?? {}) as unknown as SdsSectionsMap;
+  const metadata: SdsMetadata = {
+    productName: doc.productName ?? '',
+    supplier: doc.supplier ?? '',
+    entityBusinessName: doc.entityBusinessName ?? '',
+    quantity: doc.quantity ?? '',
+    reviewDate: doc.reviewDate ?? '',
+    reviewBy: doc.reviewBy ?? '',
+  };
 
   return (
     <div className="max-w-4xl">
@@ -57,7 +66,7 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
             ← SDS Library
           </Link>
           <h1 className="text-2xl font-bold text-gray-900">{doc.productName}</h1>
-          {doc.casNumber && <p className="text-gray-500 text-sm font-mono mt-1">CAS: {doc.casNumber}</p>}
+          {doc.supplier && <p className="text-gray-500 text-sm mt-1">Supplier: {doc.supplier}</p>}
         </div>
         <div className="flex gap-3">
           <a
@@ -68,6 +77,7 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
           >
             ↓ Download PDF
           </a>
+          <DownloadFieldsButton metadata={metadata} sections={sectionsMap} />
           {isAdmin && doc.reviewStatus !== 'human_approved' && (
             <Link
               href={`/sds/${params.id}/review`}

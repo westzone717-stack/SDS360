@@ -1,7 +1,7 @@
 import OpenAI from 'openai';
 import type { TaskType, LlmResult, QuizGenerationOptions, SdsExtractionResult } from '../types';
 import { buildQuizPrompt, parseQuizResponse } from '../prompts';
-import { extractSectionsBatched } from '../batch-extract';
+import { extractSds } from '../batch-extract';
 
 // Lazily constructed — see comment in claude.ts for why (dotenv load-order).
 let _client: OpenAI | undefined;
@@ -34,16 +34,14 @@ export async function callGpt(
   quizOptions?: QuizGenerationOptions,
 ): Promise<LlmResult> {
   if (task === 'sds_extraction') {
-    const sections = await extractSectionsBatched('gpt', prompt, callOnce);
+    const { metadata, sections } = await extractSds('gpt', prompt, callOnce);
 
-    const fieldCount = Object.values(sections)
-      .flatMap((s) => Object.values(s.subsections))
-      .flatMap((sub) => Object.values(sub.fields));
-    const nonEmptyCount = fieldCount.filter((f) => f.content.length > 0).length;
-    console.log(`[GPT] SDS extraction complete — ${Object.keys(sections).length} sections, ` +
-      `${fieldCount.length} fields, ${nonEmptyCount} non-empty`);
+    const nonEmptyCount = Object.values(sections).filter(
+      (s) => (s.value && s.value.length > 0) || (s.values && s.values.length > 0) || (s.items && s.items.length > 0)
+    ).length;
+    console.log(`[GPT] SDS extraction complete — ${Object.keys(sections).length} sections, ${nonEmptyCount} non-empty`);
 
-    return { sections, modelUsed: 'gpt', confidenceAdjusted: false } satisfies SdsExtractionResult;
+    return { metadata, sections, modelUsed: 'gpt', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
 
   // quiz_generation — single call

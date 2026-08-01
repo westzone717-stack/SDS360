@@ -53,7 +53,7 @@ async function getSdsList(customerId: string, isAdmin: boolean, search?: string,
 
   console.log('[SDS page] filter:', JSON.stringify(filter));
   const docs = await SdsDocumentModel.find(filter)
-    .select('productName casNumber hazardLevel reviewStatus createdAt version')
+    .select('productName supplier hazardLevel reviewStatus createdAt version')
     .sort({ createdAt: -1 })
     .limit(200)
     .lean();
@@ -97,7 +97,7 @@ export default async function SdsListPage({
         <input
           name="q"
           defaultValue={searchParams.q}
-          placeholder="Search by product name or CAS number…"
+          placeholder="Search by product name or supplier…"
           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
         <select
@@ -125,7 +125,7 @@ export default async function SdsListPage({
             <table className="w-full text-sm">
               <thead className="border-b border-amber-200">
                 <tr>
-                  {['Product Name', 'CAS Number', 'Hazard Level', 'Version', 'Uploaded', 'Status', ''].map((h) => (
+                  {['Product Name', 'Supplier', 'Hazard Level', 'Version', 'Uploaded', 'Status', ''].map((h) => (
                     <th key={h} className="px-4 py-2.5 text-left text-xs font-medium text-amber-700 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -134,7 +134,7 @@ export default async function SdsListPage({
                 {pending.map((doc) => (
                   <tr key={String(doc._id)} className="hover:bg-amber-100/50">
                     <td className="px-4 py-3 font-medium text-gray-900">{doc.productName}</td>
-                    <td className="px-4 py-3 text-gray-500 font-mono text-xs">{doc.casNumber ?? '—'}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{doc.supplier ?? '—'}</td>
                     <td className="px-4 py-3">
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${hazardBadge[doc.hazardLevel as HazardLevel]}`}>
                         {hazardLabel[doc.hazardLevel as HazardLevel]}
@@ -173,7 +173,7 @@ export default async function SdsListPage({
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                {['Product Name', 'CAS Number', 'Hazard Level', 'Version', 'Added'].map((h) => (
+                {['Product Name', 'Supplier', 'Hazard Level', 'Version', 'Added'].map((h) => (
                   <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                 ))}
                 <th className="px-4 py-3" />
@@ -183,7 +183,7 @@ export default async function SdsListPage({
               {published.map((doc) => (
                 <tr key={String(doc._id)} className="hover:bg-gray-50">
                   <td className="px-4 py-3 font-medium text-gray-900">{doc.productName}</td>
-                  <td className="px-4 py-3 text-gray-500 font-mono text-xs">{doc.casNumber ?? '—'}</td>
+                  <td className="px-4 py-3 text-gray-500 text-xs">{doc.supplier ?? '—'}</td>
                   <td className="px-4 py-3">
                     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${hazardBadge[doc.hazardLevel as HazardLevel]}`}>
                       {hazardLabel[doc.hazardLevel as HazardLevel]}

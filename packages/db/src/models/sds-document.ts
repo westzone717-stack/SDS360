@@ -8,10 +8,32 @@ export interface SdsDocumentDoc extends Omit<SdsDocument, '_id' | 'customerId' |
   reviewedBy?: Types.ObjectId | string;
 }
 
-// Level 3 — a single discrete field (e.g. "Product Name", "Flash Point")
-const SdsFieldSchema = new Schema(
+// A single Hazardous Ingredients row — fixed set of columns, no free-form
+// extension (matches the source form exactly).
+const SdsIngredientSchema = new Schema(
   {
-    content: { type: String, default: '' },
+    casNumber: { type: String, default: '' },
+    component: { type: String, default: '' },
+    concentration: { type: String, default: '' },
+    acgihTlvTwa: { type: String, default: '' },
+    acgihTlvStel: { type: String, default: '' },
+    acgihTlvC: { type: String, default: '' },
+    mbOelTwa: { type: String, default: '' },
+    mbOelStel: { type: String, default: '' },
+    mbOelC: { type: String, default: '' },
+  },
+  { _id: false }
+);
+
+// Every section (single_select / multi_select / ingredients) shares this
+// shape — `value`/`values`/`items` are mutually exclusive depending on the
+// section's `type` in SDS_SCHEMA, enforced at the application layer rather
+// than in the schema, since Mongoose has no native discriminated-union field.
+const SdsSectionSchema = new Schema(
+  {
+    value: { type: String },
+    values: { type: [String], default: undefined },
+    items: { type: [SdsIngredientSchema], default: undefined },
     confidence: { type: Number, default: 0, min: 0, max: 1 },
     fieldStatus: {
       type: String,
@@ -26,24 +48,22 @@ const SdsFieldSchema = new Schema(
   { _id: false }
 );
 
-// Build the nested sections definition from the canonical SDS_SCHEMA:
-// sections.<sectionKey>.subsections.<subsectionKey>.fields.<fieldKey> = SdsFieldSchema
-const sectionsDefinition = SDS_SCHEMA.reduce((sectionsAcc, section) => {
-  const subsectionsDefinition = section.subsections.reduce((subAcc, sub) => {
-    const fieldsDefinition = sub.fields.reduce(
-      (fieldAcc, field) => ({ ...fieldAcc, [field.key]: { type: SdsFieldSchema, default: () => ({}) } }),
-      {} as Record<string, unknown>
-    );
-    return { ...subAcc, [sub.key]: { fields: fieldsDefinition } };
-  }, {} as Record<string, unknown>);
-  return { ...sectionsAcc, [section.key]: { subsections: subsectionsDefinition } };
-}, {} as Record<string, unknown>);
+// Build the sections definition from the canonical SDS_SCHEMA — one
+// SdsSectionSchema per section key (physicalState, hazardousIngredients, …).
+const sectionsDefinition = SDS_SCHEMA.reduce(
+  (acc, section) => ({ ...acc, [section.key]: { type: SdsSectionSchema, default: () => ({}) } }),
+  {} as Record<string, unknown>
+);
 
 const SdsDocumentSchema = new Schema(
   {
     customerId: { type: Schema.Types.ObjectId, ref: 'Customer', required: true, index: true },
     productName: { type: String, required: true },
-    casNumber: { type: String },
+    supplier: { type: String },
+    entityBusinessName: { type: String },
+    quantity: { type: String },
+    reviewDate: { type: String },
+    reviewBy: { type: String },
     hazardLevel: {
       type: String,
       enum: ['extreme', 'high', 'medium', 'low'],
@@ -60,10 +80,6 @@ const SdsDocumentSchema = new Schema(
       default: 'pending',
     },
     modelUsed: { type: String, enum: ['claude', 'gpt', 'ollama'] },
-    // NOTE: assigned directly (not wrapped in `{ type: sectionsDefinition }`) —
-    // Mongoose auto-detects plain nested objects without a `type` key as
-    // subdocument paths; wrapping the whole thing in `type:` breaks the
-    // recursive path expansion for deeply nested schemas like this one.
     sections: sectionsDefinition,
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },
@@ -73,13 +89,11 @@ const SdsDocumentSchema = new Schema(
 );
 
 SdsDocumentSchema.index({ customerId: 1, status: 1, isActive: 1 });
-SdsDocumentSchema.index({ customerId: 1, productName: 'text', casNumber: 'text' });
+SdsDocumentSchema.index({ customerId: 1, productName: 'text', supplier: 'text' });
 SdsDocumentSchema.index({ customerId: 1, hazardLevel: 1 });
 SdsDocumentSchema.index({ customerId: 1, createdAt: -1 });
 // Only enforce hash-uniqueness among live documents — a soft-deleted
 // document's hash must not block re-uploading the same file later.
-// (partialFilterExpression only supports equality/$exists/$gt.../$and, so
-// this covers the 'active' status; 'deactivated' isn't wired up anywhere yet.)
 SdsDocumentSchema.index(
   { customerId: 1, contentHash: 1 },
   { unique: true, partialFilterExpression: { status: 'active', contentHash: { $exists: true } } }

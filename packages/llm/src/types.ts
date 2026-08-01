@@ -1,9 +1,10 @@
-import type { LlmProvider, SdsSectionsMap } from '@sds360/types';
+import type { LlmProvider, SdsSectionsMap, SdsMetadata } from '@sds360/types';
 
 export type TaskType = 'sds_extraction' | 'quiz_generation';
 
 export interface SdsExtractionResult {
-  // sections.<sectionKey>.subsections.<subsectionKey>.fields.<fieldKey> = { content, confidence, sourceLocation }
+  metadata: SdsMetadata;
+  // sections.<sectionKey> = { value | values | items, confidence, sourceLocation }
   sections: SdsSectionsMap;
   modelUsed: LlmProvider;
   confidenceAdjusted: boolean;

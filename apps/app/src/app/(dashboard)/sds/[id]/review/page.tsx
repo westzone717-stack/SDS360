@@ -3,14 +3,14 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { SDS_SCHEMA } from '../sds-sections';
-import type { SdsSectionsMap, SdsFieldData } from '../sds-sections';
+import { SDS_SCHEMA, EMPTY_INGREDIENT } from '../sds-sections';
+import type { SdsSectionsMap, SdsSectionData, SdsIngredient } from '../sds-sections';
 import { PdfViewer } from './PdfViewer';
 
 interface SdsDoc {
   _id: string;
   productName: string;
-  casNumber?: string;
+  supplier?: string;
   hazardLevel: string;
   reviewStatus: string;
   modelUsed: string;
@@ -19,7 +19,7 @@ interface SdsDoc {
   downloadUrl?: string;
 }
 
-const EMPTY_FIELD: SdsFieldData = { content: '', confidence: 0, fieldStatus: 'pending' };
+const EMPTY_SECTION: SdsSectionData = { confidence: 0, fieldStatus: 'pending' };
 
 function confidenceColor(c: number) {
   if (c >= 0.85) return 'text-green-600 bg-green-50 border-green-200';
@@ -33,16 +33,12 @@ function confidenceLabel(c: number) {
   return 'Review required';
 }
 
-function fieldPath(sectionKey: string, subsectionKey: string, fieldKey: string) {
-  return `${sectionKey}.${subsectionKey}.${fieldKey}`;
-}
-
 export default function SdsReviewPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const [doc, setDoc] = useState<SdsDoc | null>(null);
   const [sections, setSections] = useState<SdsSectionsMap>({});
-  const [expandedFields, setExpandedFields] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -61,44 +57,31 @@ export default function SdsReviewPage() {
       });
   }, [params.id]);
 
-  function getField(sectionKey: string, subsectionKey: string, fieldKey: string): SdsFieldData {
-    return sections[sectionKey]?.subsections?.[subsectionKey]?.fields?.[fieldKey] ?? EMPTY_FIELD;
+  function getSection(key: string): SdsSectionData {
+    return sections[key] ?? EMPTY_SECTION;
   }
 
-  function updateField(sectionKey: string, subsectionKey: string, fieldKey: string, patch: Partial<SdsFieldData>) {
-    setSections((prev) => {
-      const next = structuredClone(prev);
-      next[sectionKey] ??= { subsections: {} };
-      next[sectionKey].subsections[subsectionKey] ??= { fields: {} };
-      const current = next[sectionKey].subsections[subsectionKey].fields[fieldKey] ?? EMPTY_FIELD;
-      next[sectionKey].subsections[subsectionKey].fields[fieldKey] = { ...current, ...patch };
-      return next;
-    });
+  function updateSection(key: string, patch: Partial<SdsSectionData>) {
+    setSections((prev) => ({ ...prev, [key]: { ...(prev[key] ?? EMPTY_SECTION), ...patch } }));
   }
 
-  function approveField(sectionKey: string, subsectionKey: string, fieldKey: string) {
-    updateField(sectionKey, subsectionKey, fieldKey, { fieldStatus: 'human_approved' });
+  function approveSection(key: string) {
+    updateSection(key, { fieldStatus: 'human_approved' });
   }
 
   function approveAll() {
     setSections((prev) => {
       const next = structuredClone(prev);
-      for (const section of Object.values(next)) {
-        for (const sub of Object.values(section.subsections)) {
-          for (const key of Object.keys(sub.fields)) {
-            sub.fields[key] = { ...sub.fields[key], fieldStatus: 'human_approved' };
-          }
-        }
-      }
+      for (const key of Object.keys(next)) next[key] = { ...next[key], fieldStatus: 'human_approved' };
       return next;
     });
   }
 
-  function toggleField(path: string) {
-    setExpandedFields((prev) => {
+  function toggle(key: string) {
+    setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(path)) next.delete(path);
-      else next.add(path);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
@@ -126,10 +109,8 @@ export default function SdsReviewPage() {
   if (error) return <div className="text-center py-20 text-red-500">{error}</div>;
   if (!doc) return null;
 
-  const allFields = SDS_SCHEMA.flatMap((section) =>
-    section.subsections.flatMap((sub) => sub.fields.map((f) => getField(section.key, sub.key, f.key)))
-  );
-  const allApproved = allFields.every((f) => f.fieldStatus === 'human_approved');
+  const allSections = SDS_SCHEMA.map((s) => getSection(s.key));
+  const allApproved = allSections.every((s) => s.fieldStatus === 'human_approved');
   const pdfUrl = doc.downloadUrl;
 
   return (
@@ -153,13 +134,13 @@ export default function SdsReviewPage() {
         </div>
       </div>
 
-      {/* Right: Field Review Panel */}
+      {/* Right: Section Review Panel */}
       <div className="w-1/2 flex flex-col">
         {/* Header */}
         <div className="mb-3">
           <h1 className="text-xl font-bold text-gray-900">{doc.productName}</h1>
           <div className="flex items-center gap-3 mt-1">
-            {doc.casNumber && <span className="text-xs text-gray-500 font-mono">CAS: {doc.casNumber}</span>}
+            {doc.supplier && <span className="text-xs text-gray-500">Supplier: {doc.supplier}</span>}
             <span className="text-xs text-gray-400">Model: {doc.modelUsed}</span>
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 font-medium capitalize">
               {doc.reviewStatus}
@@ -173,7 +154,7 @@ export default function SdsReviewPage() {
             onClick={approveAll}
             className="text-sm text-blue-700 border border-blue-300 px-3 py-1.5 rounded-lg hover:bg-blue-50"
           >
-            Approve All Fields
+            Approve All Sections
           </button>
           <div className="flex-1" />
           <button
@@ -187,102 +168,180 @@ export default function SdsReviewPage() {
             onClick={() => submitReview(true)}
             disabled={submitting || !allApproved}
             className="text-sm bg-green-600 text-white px-4 py-1.5 rounded-lg hover:bg-green-700 disabled:opacity-50 font-medium"
-            title={!allApproved ? 'All fields must be approved before submitting' : ''}
+            title={!allApproved ? 'All sections must be approved before submitting' : ''}
           >
             {submitting ? 'Submitting…' : 'Approve & Publish'}
           </button>
         </div>
 
-        {/* Field tree: sections + subsections expanded, fields collapsed */}
-        <div className="flex-1 overflow-y-auto space-y-6">
-          {SDS_SCHEMA.map((section) => (
-            <div key={section.key}>
-              <h2 className="text-sm font-bold text-gray-900 mb-2">{section.label}</h2>
-              <div className="space-y-2">
-                {section.subsections.map((sub) => {
-                  const subFields = sub.fields.map((f) => ({ f, data: getField(section.key, sub.key, f.key) }));
-                  const needsReview = subFields.some(({ data }) => data.confidence < 0.85 && data.content);
-                  const allSubApproved = subFields.every(({ data }) => data.fieldStatus === 'human_approved');
+        {/* Section list */}
+        <div className="flex-1 overflow-y-auto space-y-2">
+          {SDS_SCHEMA.map((section) => {
+            const data = getSection(section.key);
+            const isExpanded = expanded.has(section.key);
+            const isApproved = data.fieldStatus === 'human_approved';
 
-                  return (
-                    <div
-                      key={sub.key}
-                      className={`bg-white rounded-xl border overflow-hidden ${
-                        allSubApproved ? 'border-green-200' : needsReview ? 'border-amber-200' : 'border-gray-200'
-                      }`}
-                    >
-                      <div className="px-4 py-2 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
-                        <h3 className="text-xs font-semibold text-gray-700">{sub.label}</h3>
-                        {allSubApproved && <span className="text-green-600 text-xs font-medium">✓ Approved</span>}
+            return (
+              <div
+                key={section.key}
+                className={`bg-white rounded-xl border overflow-hidden ${
+                  isApproved ? 'border-green-200' : data.confidence < 0.85 ? 'border-amber-200' : 'border-gray-200'
+                }`}
+              >
+                <button
+                  className="w-full flex items-center gap-3 px-4 py-2.5 text-left hover:bg-gray-50 transition-colors"
+                  onClick={() => toggle(section.key)}
+                >
+                  <span className="text-sm text-gray-800 font-semibold w-52 shrink-0">{section.label}</span>
+                  <span className="text-xs text-gray-400 truncate flex-1">
+                    <SectionSummary section={section} data={data} />
+                  </span>
+                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${confidenceColor(data.confidence)}`}>
+                    {Math.round(data.confidence * 100)}%
+                  </span>
+                  {isApproved ? (
+                    <span className="text-green-600 text-xs font-medium shrink-0">✓</span>
+                  ) : (
+                    <span className="text-gray-300 text-xs shrink-0">{isExpanded ? '▲' : '▼'}</span>
+                  )}
+                </button>
+
+                {isExpanded && (
+                  <div className="px-4 pb-3 pt-1 space-y-2">
+                    {data.sourceLocation && (
+                      <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-xs text-amber-800">
+                        <span className="font-medium">Source — Page {data.sourceLocation.page}:</span>{' '}
+                        <span className="italic">{data.sourceLocation.excerpt}</span>
                       </div>
-                      <div className="divide-y divide-gray-50">
-                        {subFields.map(({ f, data }) => {
-                          const path = fieldPath(section.key, sub.key, f.key);
-                          const isExpanded = expandedFields.has(path);
+                    )}
+                    <p className="text-xs text-gray-400">{confidenceLabel(data.confidence)}</p>
 
-                          return (
-                            <div key={f.key}>
-                              <button
-                                className="w-full flex items-center gap-3 px-4 py-2 text-left hover:bg-gray-50 transition-colors"
-                                onClick={() => toggleField(path)}
-                              >
-                                <span className="text-xs text-gray-700 font-medium w-48 shrink-0 truncate">{f.label}</span>
-                                <span className="text-xs text-gray-400 truncate flex-1">
-                                  {data.content || <span className="italic text-gray-300">empty</span>}
-                                </span>
-                                {data.content && (
-                                  <span className={`text-xs px-2 py-0.5 rounded-full border font-medium shrink-0 ${confidenceColor(data.confidence)}`}>
-                                    {Math.round(data.confidence * 100)}%
-                                  </span>
-                                )}
-                                {data.fieldStatus === 'human_approved' ? (
-                                  <span className="text-green-600 text-xs font-medium shrink-0">✓</span>
-                                ) : (
-                                  <span className="text-gray-300 text-xs shrink-0">{isExpanded ? '▲' : '▼'}</span>
-                                )}
-                              </button>
+                    <SectionEditor section={section} data={data} onChange={(patch) => updateSection(section.key, patch)} />
 
-                              {isExpanded && (
-                                <div className="px-4 pb-3 pt-1 space-y-2">
-                                  {data.sourceLocation && (
-                                    <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 text-xs text-amber-800">
-                                      <span className="font-medium">Source — Page {data.sourceLocation.page}:</span>{' '}
-                                      <span className="italic">{data.sourceLocation.excerpt}</span>
-                                    </div>
-                                  )}
-                                  <p className="text-xs text-gray-400">{confidenceLabel(data.confidence)}</p>
-                                  <textarea
-                                    value={data.content}
-                                    onChange={(e) => updateField(section.key, sub.key, f.key, { content: e.target.value })}
-                                    rows={3}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
-                                  />
-                                  <div className="flex justify-end">
-                                    <button
-                                      onClick={() => approveField(section.key, sub.key, f.key)}
-                                      className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${
-                                        data.fieldStatus === 'human_approved'
-                                          ? 'bg-green-100 text-green-700 border border-green-300'
-                                          : 'bg-white border border-gray-300 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700'
-                                      }`}
-                                    >
-                                      {data.fieldStatus === 'human_approved' ? '✓ Approved' : 'Approve Field'}
-                                    </button>
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={() => approveSection(section.key)}
+                        className={`text-xs px-3 py-1 rounded-lg font-medium transition-colors ${
+                          isApproved
+                            ? 'bg-green-100 text-green-700 border border-green-300'
+                            : 'bg-white border border-gray-300 text-gray-600 hover:bg-green-50 hover:border-green-300 hover:text-green-700'
+                        }`}
+                      >
+                        {isApproved ? '✓ Approved' : 'Approve Section'}
+                      </button>
                     </div>
-                  );
-                })}
+                  </div>
+                )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
+    </div>
+  );
+}
+
+function SectionSummary({ section, data }: { section: (typeof SDS_SCHEMA)[number]; data: SdsSectionData }) {
+  if (section.type === 'ingredients') {
+    return <>{data.items?.length ? `${data.items.length} ingredient(s)` : <span className="italic text-gray-300">empty</span>}</>;
+  }
+  if (section.type === 'multi_select') {
+    const labels = (data.values ?? []).map((v) => section.options?.find((o) => o.value === v)?.label ?? v);
+    return <>{labels.length ? labels.join(', ') : <span className="italic text-gray-300">empty</span>}</>;
+  }
+  const opt = section.options?.find((o) => o.value === data.value);
+  return <>{opt ? opt.label : <span className="italic text-gray-300">empty</span>}</>;
+}
+
+function SectionEditor({
+  section,
+  data,
+  onChange,
+}: {
+  section: (typeof SDS_SCHEMA)[number];
+  data: SdsSectionData;
+  onChange: (patch: Partial<SdsSectionData>) => void;
+}) {
+  if (section.type === 'single_select') {
+    return (
+      <div className="flex flex-wrap gap-2">
+        {section.options!.map((o) => (
+          <label
+            key={o.value}
+            className={`text-xs px-3 py-1.5 rounded-lg border cursor-pointer ${
+              data.value === o.value ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-gray-300 text-gray-600'
+            }`}
+          >
+            <input type="radio" className="hidden" checked={data.value === o.value} onChange={() => onChange({ value: o.value })} />
+            {o.label}
+          </label>
+        ))}
+      </div>
+    );
+  }
+
+  if (section.type === 'multi_select') {
+    const values = data.values ?? [];
+    return (
+      <div className="flex flex-wrap gap-2">
+        {section.options!.map((o) => {
+          const checked = values.includes(o.value);
+          return (
+            <label
+              key={o.value}
+              className={`text-xs px-3 py-1.5 rounded-lg border cursor-pointer ${
+                checked ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-gray-300 text-gray-600'
+              }`}
+              title={o.description}
+            >
+              <input
+                type="checkbox"
+                className="hidden"
+                checked={checked}
+                onChange={() => onChange({ values: checked ? values.filter((v) => v !== o.value) : [...values, o.value] })}
+              />
+              {o.label}
+            </label>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // ingredients
+  const items = data.items ?? [];
+  function updateItem(i: number, key: keyof SdsIngredient, value: string) {
+    const next = items.slice();
+    next[i] = { ...next[i], [key]: value };
+    onChange({ items: next });
+  }
+  return (
+    <div className="space-y-2">
+      {items.map((item, i) => (
+        <div key={i} className="border border-gray-200 rounded-lg p-2 grid grid-cols-3 gap-1.5">
+          {(Object.keys(EMPTY_INGREDIENT) as Array<keyof SdsIngredient>).map((key) => (
+            <input
+              key={key}
+              value={item[key]}
+              onChange={(e) => updateItem(i, key, e.target.value)}
+              placeholder={key}
+              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          ))}
+          <button
+            onClick={() => onChange({ items: items.filter((_, idx) => idx !== i) })}
+            className="col-span-3 text-xs text-red-600 hover:text-red-800 text-right"
+          >
+            Remove
+          </button>
+        </div>
+      ))}
+      <button
+        onClick={() => onChange({ items: [...items, { ...EMPTY_INGREDIENT }] })}
+        className="text-xs text-blue-700 border border-blue-300 rounded-lg px-3 py-1.5 hover:bg-blue-50"
+      >
+        + Add Ingredient
+      </button>
     </div>
   );
 }

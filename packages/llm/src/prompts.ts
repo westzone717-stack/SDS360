@@ -1,54 +1,49 @@
 import type { SdsExtractionResult, QuizGenerationResult } from './types';
-import { SDS_SCHEMA, getSdsSection } from '@sds360/types';
-import type { SdsSectionsMap, SdsSectionData } from '@sds360/types';
+import { SDS_SCHEMA, SDS_METADATA_FIELDS, SDS_INGREDIENT_FIELDS, EMPTY_INGREDIENT } from '@sds360/types';
+import type { SdsSectionsMap, SdsSectionData, SdsMetadata, SdsIngredient } from '@sds360/types';
 
-export const SDS_SECTIONS = SDS_SCHEMA.map((s) => s.key);
+export function buildSdsPrompt(documentText: string): string {
+  const metaList = SDS_METADATA_FIELDS.map((f) => `  - ${f.key} ("${f.label}")`).join('\n');
 
-// Each main section (with all its subsections/fields) is extracted in its own
-// LLM call — a single section can already contain 40+ discrete fields, so
-// batching multiple sections together risks truncated JSON output.
-export const SDS_SECTION_BATCHES: string[][] = SDS_SECTIONS.map((k) => [k]);
+  const sectionBlocks = SDS_SCHEMA.map((section) => {
+    if (section.type === 'ingredients') {
+      const cols = section.ingredientFields!.map((f) => `${f.key} ("${f.label}")`).join(', ');
+      return `${section.key} ("${section.label}") — a REPEATING LIST, one entry per hazardous component found in the "Hazardous Ingredients" table. Each entry has: ${cols}`;
+    }
+    const opts = section.options!.map((o) => `"${o.value}" (${o.label})`).join(', ');
+    return `${section.key} ("${section.label}") — ${section.type === 'single_select' ? 'pick exactly ONE' : 'pick ALL that apply (zero or more)'} of: ${opts}`;
+  }).join('\n\n');
 
-export function buildSdsPrompt(documentText: string, sectionsSubset?: string[]): string {
-  const targetKeys = sectionsSubset ?? SDS_SECTIONS;
-  const targetSections = targetKeys.map((k) => getSdsSection(k)).filter((s): s is NonNullable<typeof s> => !!s);
+  const ingredientShape = SDS_INGREDIENT_FIELDS.map((f) => `"${f.key}":"..."`).join(', ');
+  const sectionsShape = SDS_SCHEMA.map((section) => {
+    if (section.type === 'ingredients') {
+      return `"${section.key}": {"items": [{${ingredientShape}}, ...], "confidence":0.0}`;
+    }
+    if (section.type === 'multi_select') {
+      return `"${section.key}": {"values": ["optionValue", ...], "confidence":0.0}`;
+    }
+    return `"${section.key}": {"value":"optionValue", "confidence":0.0}`;
+  }).join(', ');
 
-  const sectionBlocks = targetSections
-    .map((section) => {
-      const subsectionLines = section.subsections
-        .map((sub) => {
-          const fieldList = sub.fields.map((f) => `${f.key} ("${f.label}")`).join(', ');
-          return `  - ${sub.key} ("${sub.label}"): ${fieldList}`;
-        })
-        .join('\n');
-      return `${section.key} ("${section.label}"):\n${subsectionLines}`;
-    })
-    .join('\n\n');
+  const metaShape = SDS_METADATA_FIELDS.map((f) => `"${f.key}":"..."`).join(', ');
 
-  const shape = targetSections
-    .map((section) => {
-      const subShape = section.subsections
-        .map((sub) => {
-          const fieldShape = sub.fields.map((f) => `"${f.key}": {"content":"...","confidence":0.0,"sourceLocation":{"page":1,"excerpt":"..."}}`).join(', ');
-          return `"${sub.key}": {${fieldShape}}`;
-        })
-        .join(', ');
-      return `"${section.key}": {${subShape}}`;
-    })
-    .join(', ');
+  return `You are a hazardous materials safety expert. Extract the following from the SDS review-summary document text below.
 
-  return `You are a hazardous materials safety expert. Extract the following fields from the GHS Safety Data Sheet document text below.
+Document metadata (plain text fields):
+${metaList}
 
-Fields to extract, grouped by section and subsection:
+Sections (checklist-style — the document marks selections with a checkmark/highlight):
 ${sectionBlocks}
 
-For each field provide:
-- content: the extracted text/value from the document (empty string "" if the field is not present)
-- confidence: a float 0.0–1.0 (0.0 if missing, 0.85+ if clearly found, lower if unclear)
-- sourceLocation: { page: number, excerpt: string } — page number and a short ~50 char snippet from the source (omit if content is empty)
+For the "hazardousIngredients" list, extract every distinct component listed under "Hazardous Ingredients" as one entry — do not skip or merge any, and do not invent ones not present.
 
-Return a single JSON object shaped exactly like this (using the field keys given above):
-{ ${shape} }
+For every other section, "confidence" is a float 0.0–1.0 (0.0 if nothing was selected/found, 0.85+ if clearly marked, lower if ambiguous). Use ONLY the option values given above — never invent new option values.
+
+Return a single JSON object shaped exactly like this:
+{
+  "metadata": { ${metaShape} },
+  "sections": { ${sectionsShape} }
+}
 
 Document text:
 ---
@@ -76,7 +71,7 @@ For each question provide:
 - correctIndex: 0-based index of the correct answer
 - explanation: why that answer is correct
 - difficulty: "basic", "advanced", or "expert"
-- relatedSection: which SDS section this tests (e.g. "firstAidMeasures")
+- relatedSection: which SDS section this tests (e.g. "healthEffects")
 
 SDS Content:
 ---
@@ -86,9 +81,11 @@ ${sdsContent}
 Return a JSON object with key "questions" containing an array of exactly ${count} question objects. Respond with valid JSON only.`;
 }
 
-export function parseSdsResponse(text: string, sectionsSubset?: string[]): Pick<SdsExtractionResult, 'sections'> {
-  const targetKeys = sectionsSubset ?? SDS_SECTIONS;
+function clampConfidence(v: unknown): number {
+  return Math.max(0, Math.min(1, Number(v ?? 0)));
+}
 
+export function parseSdsResponse(text: string): Pick<SdsExtractionResult, 'metadata' | 'sections'> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let raw: Record<string, any> = {};
   try {
@@ -97,35 +94,47 @@ export function parseSdsResponse(text: string, sectionsSubset?: string[]): Pick<
     raw = {};
   }
 
+  const rawMeta = raw.metadata ?? {};
+  const metadata: SdsMetadata = {
+    productName: String(rawMeta.productName ?? ''),
+    supplier: String(rawMeta.supplier ?? ''),
+    entityBusinessName: String(rawMeta.entityBusinessName ?? ''),
+    quantity: String(rawMeta.quantity ?? ''),
+    reviewDate: String(rawMeta.reviewDate ?? ''),
+    reviewBy: String(rawMeta.reviewBy ?? ''),
+  };
+
+  const rawSections = raw.sections ?? {};
   const sections: SdsSectionsMap = {};
-  for (const key of targetKeys) {
-    const section = getSdsSection(key);
-    if (!section) continue;
+  for (const section of SDS_SCHEMA) {
+    const rawSection = rawSections[section.key] ?? {};
+    const confidence = clampConfidence(rawSection.confidence);
 
-    const rawSection = raw[key] ?? {};
-    const sectionData: SdsSectionData = { subsections: {} };
+    const base: SdsSectionData = { confidence, fieldStatus: 'pending' };
 
-    for (const sub of section.subsections) {
-      const rawSub = rawSection[sub.key] ?? {};
-      const fields: SdsSectionData['subsections'][string]['fields'] = {};
-
-      for (const field of sub.fields) {
-        const val = rawSub[field.key] ?? {};
-        fields[field.key] = {
-          content: String(val.content ?? ''),
-          confidence: Math.max(0, Math.min(1, Number(val.confidence ?? 0))),
-          fieldStatus: 'pending',
-          sourceLocation: val.sourceLocation,
-        };
-      }
-
-      sectionData.subsections[sub.key] = { fields };
+    if (section.type === 'ingredients') {
+      const rawItems = Array.isArray(rawSection.items) ? rawSection.items : [];
+      base.items = rawItems.map((item: Record<string, unknown>) => {
+        const ingredient: SdsIngredient = { ...EMPTY_INGREDIENT };
+        for (const f of SDS_INGREDIENT_FIELDS) {
+          (ingredient as unknown as Record<string, string>)[f.key] = String(item?.[f.key] ?? '');
+        }
+        return ingredient;
+      });
+    } else if (section.type === 'multi_select') {
+      const rawValues = Array.isArray(rawSection.values) ? rawSection.values : [];
+      const validValues = new Set(section.options!.map((o) => o.value));
+      base.values = rawValues.filter((v: unknown) => typeof v === 'string' && validValues.has(v));
+    } else {
+      const validValues = new Set(section.options?.map((o) => o.value));
+      const value = String(rawSection.value ?? '');
+      base.value = section.type === 'single_select' && !validValues.has(value) ? '' : value;
     }
 
-    sections[key] = sectionData;
+    sections[section.key] = base;
   }
 
-  return { sections };
+  return { metadata, sections };
 }
 
 export function parseQuizResponse(text: string): Pick<QuizGenerationResult, 'questions'> {
@@ -143,16 +152,8 @@ export function adjustConfidence(
   weight: number
 ): SdsExtractionResult['sections'] {
   const adjusted: SdsSectionsMap = {};
-  for (const [sectionKey, section] of Object.entries(sections)) {
-    const subsections: SdsSectionData['subsections'] = {};
-    for (const [subKey, sub] of Object.entries(section.subsections)) {
-      const fields: SdsSectionData['subsections'][string]['fields'] = {};
-      for (const [fieldKey, field] of Object.entries(sub.fields)) {
-        fields[fieldKey] = { ...field, confidence: field.confidence * weight };
-      }
-      subsections[subKey] = { fields };
-    }
-    adjusted[sectionKey] = { subsections };
+  for (const [key, section] of Object.entries(sections)) {
+    adjusted[key] = { ...section, confidence: section.confidence * weight };
   }
   return adjusted;
 }

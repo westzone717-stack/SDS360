@@ -55,14 +55,20 @@ export async function POST(req: Request) {
     const queue = new Queue('quiz-generation', {
       connection: bullmqConnectionOptions(),
     });
-    await queue.add('generate', {
-      sdsDocumentId,
-      customerId: session.user.customerId,
-      count: adjustedCount,
-    }, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    try {
+      await queue.add('generate', {
+        sdsDocumentId,
+        customerId: session.user.customerId,
+        count: adjustedCount,
+      }, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      });
+    } finally {
+      // See apps/app/src/app/api/sds/route.ts — an unclosed per-request Queue
+      // leaks a Redis connection for the life of the container.
+      await queue.close();
+    }
 
     return NextResponse.json({ success: true, data: { queued: true } });
   } catch (err) {

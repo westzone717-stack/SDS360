@@ -3,19 +3,17 @@ import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 
-const fieldSchema = z.object({
-  content: z.string(),
+const sectionSchema = z.object({
+  value: z.string().optional(),
+  values: z.array(z.string()).optional(),
+  items: z.array(z.record(z.string())).optional(),
   confidence: z.number(),
   fieldStatus: z.enum(['pending', 'ai_approved', 'human_approved']),
 });
 
 const reviewSchema = z.object({
-  // sections.<sectionKey>.subsections.<subsectionKey>.fields.<fieldKey> = fieldSchema
-  sections: z.record(z.object({
-    subsections: z.record(z.object({
-      fields: z.record(fieldSchema),
-    })),
-  })),
+  // sections.<sectionKey> = sectionSchema
+  sections: z.record(sectionSchema),
   approved: z.boolean(),
 });
 
@@ -40,17 +38,14 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       isActive: approved,
     };
 
-    // Merge reviewed fields, 3 levels deep
-    let fieldCount = 0;
+    let sectionCount = 0;
     for (const [sectionKey, section] of Object.entries(sections)) {
-      for (const [subKey, sub] of Object.entries(section.subsections)) {
-        for (const [fieldKey, field] of Object.entries(sub.fields)) {
-          const path = `sections.${sectionKey}.subsections.${subKey}.fields.${fieldKey}`;
-          update[`${path}.content`] = field.content;
-          update[`${path}.fieldStatus`] = field.fieldStatus;
-          fieldCount++;
-        }
-      }
+      const path = `sections.${sectionKey}`;
+      if (section.value !== undefined) update[`${path}.value`] = section.value;
+      if (section.values !== undefined) update[`${path}.values`] = section.values;
+      if (section.items !== undefined) update[`${path}.items`] = section.items;
+      update[`${path}.fieldStatus`] = section.fieldStatus;
+      sectionCount++;
     }
 
     const doc = await SdsDocumentModel.findOneAndUpdate(
@@ -69,7 +64,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       action: approved ? 'activate' : 'update',
       resource: 'sds_document',
       resourceId: params.id,
-      after: { reviewStatus: doc.reviewStatus, fieldCount },
+      after: { reviewStatus: doc.reviewStatus, sectionCount },
     });
 
     return NextResponse.json({ success: true, data: doc });

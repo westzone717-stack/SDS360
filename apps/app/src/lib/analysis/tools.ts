@@ -141,18 +141,22 @@ const getQuizBankHealth: AnalysisTool = {
 
 interface LeanSdsDoc {
   productName: string;
-  casNumber?: string;
+  supplier?: string;
   hazardLevel: string;
-  sections: Record<string, { subsections: Record<string, { fields: Record<string, { content: string }> }> }>;
+  sections: Record<string, { value?: string; values?: string[]; items?: Record<string, string>[] }>;
 }
 
-function field(doc: LeanSdsDoc, sectionKey: string, subsectionKey: string, fieldKey: string): string {
-  return doc.sections?.[sectionKey]?.subsections?.[subsectionKey]?.fields?.[fieldKey]?.content ?? '';
+function sectionValue(doc: LeanSdsDoc, sectionKey: string): unknown {
+  const section = doc.sections?.[sectionKey];
+  if (!section) return null;
+  if (section.items) return section.items;
+  if (section.values) return section.values;
+  return section.value ?? null;
 }
 
 const getSdsRiskProfile: AnalysisTool = {
   name: 'get_sds_risk_profile',
-  description: 'The actual hazard/risk content extracted from SDS documents — GHS classification, signal word, hazard statements, flash point, toxicity (LD50/LC50), and reactivity notes. Use this for any question about a product\'s specific dangers, not just document counts. Optionally filter to documents whose product name contains a given substring; omit to get every document (capped at 20, highest hazard level first).',
+  description: 'The actual hazard/risk content extracted from SDS documents — hazardous ingredients (CAS numbers, concentrations, exposure limits), physical hazard classes, health effects, label color, and required PPE. Use this for any question about a product\'s specific dangers, not just document counts. Optionally filter to documents whose product name contains a given substring; omit to get every document (capped at 20, highest hazard level first).',
   argsShape: '{ productName?: string }',
   argsSchema: z.object({ productName: z.string().optional() }),
   async execute(ctx, rawArgs) {
@@ -173,19 +177,14 @@ const getSdsRiskProfile: AnalysisTool = {
       matchCount: docs.length,
       products: docs.map((doc) => ({
         productName: doc.productName,
-        casNumber: doc.casNumber ?? null,
+        supplier: doc.supplier ?? null,
         hazardLevel: doc.hazardLevel,
-        ghsClassification: field(doc, 'hazardIdentification', 'hazardClassification', 'ghsClassification'),
-        signalWord: field(doc, 'hazardIdentification', 'ghsLabelElements', 'signalWord'),
-        hazardStatements: field(doc, 'hazardIdentification', 'ghsLabelElements', 'hazardStatements'),
-        precautionaryStatements: field(doc, 'hazardIdentification', 'ghsLabelElements', 'precautionaryStatements'),
-        flashPoint: field(doc, 'physicalAndChemicalProperties', 'flammabilityProperties', 'flashPoint'),
-        autoIgnitionTemperature: field(doc, 'physicalAndChemicalProperties', 'flammabilityProperties', 'autoIgnitionTemperature'),
-        oralLd50: field(doc, 'toxicologicalInformation', 'numericalMeasuresOfToxicity', 'oralLd50') || field(doc, 'toxicologicalInformation', 'numericalMeasuresOfToxicity', 'ld50'),
-        inhalationLc50: field(doc, 'toxicologicalInformation', 'numericalMeasuresOfToxicity', 'inhalationLc50') || field(doc, 'toxicologicalInformation', 'numericalMeasuresOfToxicity', 'lc50'),
-        reactivityInformation: field(doc, 'stabilityAndReactivity', 'reactivity', 'reactivityInformation'),
-        hazardousReactions: field(doc, 'stabilityAndReactivity', 'possibilityOfHazardousReactions', 'hazardousReactions'),
-        incompatibleMaterials: field(doc, 'handlingAndStorage', 'incompatibilities', 'incompatibleMaterials'),
+        physicalState: sectionValue(doc, 'physicalState'),
+        hazardousIngredients: sectionValue(doc, 'hazardousIngredients') ?? [],
+        physicalHazardClasses: sectionValue(doc, 'physicalHazardClasses') ?? [],
+        healthEffects: sectionValue(doc, 'healthEffects') ?? [],
+        labelColor: sectionValue(doc, 'labelColor'),
+        ppeRecommendations: sectionValue(doc, 'ppeRecommendations') ?? [],
       })),
     };
   },
@@ -195,12 +194,12 @@ const SECTION_KEY_LIST = SDS_SCHEMA.map((s) => `${s.key} (${s.label})`).join(', 
 
 const sdsSectionDetailsArgsSchema = z.object({
   productNames: z.array(z.string()).optional(),
-  sectionKeys: z.array(z.string()).min(1).max(16),
+  sectionKeys: z.array(z.string()).min(1).max(6),
 });
 
 const getSdsSectionDetails: AnalysisTool = {
   name: 'get_sds_section_details',
-  description: `General-purpose SDS field reader. Give it one or more of the 16 top-level SDS sections and (optionally) a list of product names, and it returns the full subsection/field content extracted for those sections on those documents — use this any time you need specific SDS content that the other tools don't already summarize. Valid section keys: ${SECTION_KEY_LIST}.`,
+  description: `General-purpose SDS field reader. Give it one or more of the SDS sections and (optionally) a list of product names, and it returns the extracted value for those sections on those documents — use this any time you need specific SDS content that the other tools don't already summarize. Valid section keys: ${SECTION_KEY_LIST}.`,
   argsShape: '{ productNames?: string[], sectionKeys: string[] }',
   argsSchema: sdsSectionDetailsArgsSchema,
   async execute(ctx, rawArgs) {
@@ -217,7 +216,7 @@ const getSdsSectionDetails: AnalysisTool = {
       match.$or = productNames.map((name) => ({ productName: { $regex: name, $options: 'i' } }));
     }
 
-    const projection: Record<string, 1> = { productName: 1, casNumber: 1, hazardLevel: 1 };
+    const projection: Record<string, 1> = { productName: 1, supplier: 1, hazardLevel: 1 };
     for (const key of validKeys) projection[`sections.${key}`] = 1;
 
     const docs = (await SdsDocumentModel.find(match, projection).limit(10).lean()) as unknown as LeanSdsDoc[];
@@ -231,24 +230,9 @@ const getSdsSectionDetails: AnalysisTool = {
       requestedSections: validKeys,
       documents: docs.map((doc) => ({
         productName: doc.productName,
-        casNumber: doc.casNumber ?? null,
+        supplier: doc.supplier ?? null,
         hazardLevel: doc.hazardLevel,
-        sections: Object.fromEntries(
-          validKeys.map((sectionKey) => {
-            const section = doc.sections?.[sectionKey];
-            const subsections = Object.fromEntries(
-              Object.entries(section?.subsections ?? {}).map(([subKey, sub]) => [
-                subKey,
-                Object.fromEntries(
-                  Object.entries(sub.fields ?? {})
-                    .filter(([, f]) => f.content)
-                    .map(([fieldKey, f]) => [fieldKey, f.content]),
-                ),
-              ]),
-            );
-            return [sectionKey, subsections];
-          }),
-        ),
+        sections: Object.fromEntries(validKeys.map((sectionKey) => [sectionKey, sectionValue(doc, sectionKey)])),
       })),
     };
   },

@@ -49,8 +49,8 @@ export type SdsStatus = 'active' | 'deactivated' | 'deleted';
 export type HazardLevel = 'extreme' | 'high' | 'medium' | 'low';
 export type LlmProvider = 'claude' | 'gpt' | 'ollama';
 
-// Re-exported from sds-schema.ts — the canonical 3-level field definition
-// (16 sections → subsections → discrete fields) plus the nested stored-value shapes.
+// Re-exported from sds-schema.ts — the canonical field definition (top-level
+// metadata + 6 sections, mostly select/multi-select) plus the stored-value shapes.
 export * from './sds-schema';
 import type { SdsSectionsMap } from './sds-schema';
 
@@ -58,7 +58,11 @@ export interface SdsDocument {
   _id: string;
   customerId: string;
   productName: string;
-  casNumber?: string;
+  supplier?: string;
+  entityBusinessName?: string;
+  quantity?: string;
+  reviewDate?: string;
+  reviewBy?: string;
   hazardLevel: HazardLevel;
   s3Key: string;
   s3Bucket: string;

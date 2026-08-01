@@ -1,48 +1,14 @@
 import type { TaskType, SdsExtractionResult, QuizGenerationResult, LlmResult, QuizGenerationOptions } from '../types';
 import { SDS_SCHEMA } from '@sds360/types';
-import type { SdsSectionsMap, SdsSectionData } from '@sds360/types';
+import type { SdsSectionsMap, SdsSectionData, SdsMetadata } from '@sds360/types';
 
-// A handful of representative sample values, keyed by field key, used to make
-// the mock extraction look plausible. Any field not listed here gets a
-// generic placeholder so every one of the ~400 fields still has content.
-const SAMPLE_VALUES: Record<string, string> = {
+const MOCK_METADATA: SdsMetadata = {
   productName: 'Mock Chemical',
-  productIdentifier: 'Mock Chemical',
-  manufacturerName: 'Mock Chemical Corp',
-  supplierName: 'Mock Chemical Corp',
-  emergencyPhone: '1-800-555-0000',
-  recommendedUse: 'Industrial solvent',
-  ghsClassification: 'Flammable Liquid Cat. 2, Acute Tox. Cat. 4',
-  signalWord: 'DANGER',
-  hazardStatements: 'H225, H302',
-  chemicalName: 'Mock Solvent',
-  casNumber: '67-64-1',
-  concentration: '>99%',
-  inhalation: 'Move to fresh air. If breathing is difficult, give oxygen.',
-  skinContact: 'Wash with soap and water for 15 minutes.',
-  eyeContact: 'Rinse with water for 15 minutes.',
-  ingestion: 'Do NOT induce vomiting. Call physician.',
-  suitableExtinguishingMedia: 'CO2, dry chemical, foam.',
-  unsuitableExtinguishingMedia: 'Water jet.',
-  appearance: 'Clear colorless liquid',
-  odor: 'Characteristic sweet',
-  ph: 'N/A',
-  flashPoint: '-18°C',
-  boilingPoint: '56°C',
-  density: '0.79 g/mL',
-  stabilityStatus: 'Stable under normal conditions.',
-  ld50: '5800 mg/kg (oral, rat)',
-  lc50: '76 mg/L (inhalation, rat, 4h)',
-  aquaticToxicity: 'LC50 (fish, 96h): 8.3 mg/L',
-  wasteTreatmentMethod: 'Incinerate in licensed facility.',
-  unNumber: 'UN1090',
-  properShippingName: 'Acetone',
-  transportHazardClass: '3',
-  packingGroup: 'II',
-  oshaClassification: 'Hazard Communication Standard (29 CFR 1910.1200)',
-  revisionDate: '2024-01-01',
-  version: '1.0',
-  preparedBy: 'Mock Safety Dept',
+  supplier: 'Mock Chemical Corp',
+  entityBusinessName: 'Mock Chemical Corp',
+  quantity: '(Based on company\'s inventory)',
+  reviewDate: new Date().toISOString().slice(0, 10),
+  reviewBy: 'Mock Reviewer',
 };
 
 export async function callMock(
@@ -56,23 +22,22 @@ export async function callMock(
   if (task === 'sds_extraction') {
     const sections: SdsSectionsMap = {};
     for (const section of SDS_SCHEMA) {
-      const subsections: SdsSectionData['subsections'] = {};
-      for (const sub of section.subsections) {
-        const fields: SdsSectionData['subsections'][string]['fields'] = {};
-        for (const field of sub.fields) {
-          const sample = SAMPLE_VALUES[field.key];
-          fields[field.key] = {
-            content: sample ?? `[Mock ${field.label}]`,
-            confidence: 0.72 + Math.random() * 0.25, // 0.72–0.97
-            fieldStatus: 'pending',
-            sourceLocation: { page: Math.ceil(Math.random() * 10), excerpt: `...${field.label} information...` },
-          };
-        }
-        subsections[sub.key] = { fields };
+      const confidence = 0.72 + Math.random() * 0.25; // 0.72–0.97
+      const base: SdsSectionData = { confidence, fieldStatus: 'pending' };
+      if (section.type === 'ingredients') {
+        base.items = [{
+          casNumber: '67-64-1', component: 'Acetone', concentration: '>= 80 - < 100 *',
+          acgihTlvTwa: '250 ppm', acgihTlvStel: '500 ppm', acgihTlvC: '',
+          mbOelTwa: '250 ppm', mbOelStel: '500 ppm', mbOelC: '',
+        }];
+      } else if (section.type === 'multi_select') {
+        base.values = section.options!.slice(0, 2).map((o) => o.value);
+      } else {
+        base.value = section.options![0]?.value ?? '';
       }
-      sections[section.key] = { subsections };
+      sections[section.key] = base;
     }
-    return { sections, modelUsed: 'claude', confidenceAdjusted: false } satisfies SdsExtractionResult;
+    return { metadata: MOCK_METADATA, sections, modelUsed: 'claude', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
 
   // quiz_generation

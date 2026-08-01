@@ -126,31 +126,29 @@ const sdsWorker = new Worker(
     try {
       const result = (await routeWithFallback(documentText, 'sds_extraction')) as SdsExtractionResult;
 
-      // Auto-approve high-confidence fields, per discrete field (3-level: section → subsection → field)
+      // Auto-approve high-confidence sections; metadata fields are plain text
+      // (no confidence tracking) and are always written as extracted.
       const sectionsUpdate: Record<string, unknown> = {};
-      let fieldCount = 0;
+      let sectionCount = 0;
       for (const [sectionKey, section] of Object.entries(result.sections)) {
-        for (const [subKey, sub] of Object.entries(section.subsections)) {
-          for (const [fieldKey, field] of Object.entries(sub.fields)) {
-            const fieldStatus = field.confidence >= 0.85 ? 'ai_approved' : 'pending';
-            sectionsUpdate[`sections.${sectionKey}.subsections.${subKey}.fields.${fieldKey}`] = {
-              content: field.content,
-              confidence: field.confidence,
-              fieldStatus,
-              sourceLocation: field.sourceLocation,
-            };
-            fieldCount++;
-          }
-        }
+        const fieldStatus = section.confidence >= 0.85 ? 'ai_approved' : 'pending';
+        sectionsUpdate[`sections.${sectionKey}`] = { ...section, fieldStatus };
+        sectionCount++;
       }
 
       await SdsDocumentModel.findByIdAndUpdate(docId, {
         ...sectionsUpdate,
+        productName: result.metadata.productName || doc.productName,
+        supplier: result.metadata.supplier,
+        entityBusinessName: result.metadata.entityBusinessName,
+        quantity: result.metadata.quantity,
+        reviewDate: result.metadata.reviewDate,
+        reviewBy: result.metadata.reviewBy,
         modelUsed: result.modelUsed,
         reviewStatus: 'pending',
       });
 
-      console.log(`[sds-extraction] Completed docId=${docId} via ${result.modelUsed} — ${fieldCount} fields extracted`);
+      console.log(`[sds-extraction] Completed docId=${docId} via ${result.modelUsed} — ${sectionCount} sections extracted`);
     } catch (err) {
       const isFinalAttempt = job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
       if (err instanceof AllProvidersFailedError && isFinalAttempt) {
@@ -219,20 +217,29 @@ const quizWorker = new Worker(
     const toGenerate = Math.min(count ?? 5, remaining);
     const existingQuestions = existingDocs.map((q) => q.question);
 
-    // Flatten the nested (section → subsection → field) content into a plain
-    // text summary for quiz generation
-    type FieldRecord = { content: string };
-    type SectionRecord = { subsections: Record<string, { fields: Record<string, FieldRecord> }> };
-    const sdsContent = Object.entries(doc.sections ?? {} as Record<string, SectionRecord>)
+    // Flatten the section data (single_select value / multi_select values /
+    // ingredients rows) into a plain text summary for quiz generation
+    type SectionRecord = { value?: string; values?: string[]; items?: Record<string, string>[] };
+    const metaLines = [
+      `Product name: ${doc.productName ?? ''}`,
+      `Supplier: ${doc.supplier ?? ''}`,
+      `Entity/Business Name: ${doc.entityBusinessName ?? ''}`,
+    ].join('\n');
+    const sectionLines = Object.entries(doc.sections ?? {} as Record<string, SectionRecord>)
       .map(([sectionKey, section]) => {
-        const fieldLines = Object.values(section.subsections ?? {})
-          .flatMap((sub) => Object.entries(sub.fields ?? {}))
-          .filter(([, field]) => field.content)
-          .map(([fieldKey, field]) => `${fieldKey}: ${field.content}`)
-          .join('\n');
-        return `## ${sectionKey}\n${fieldLines}`;
+        let body = '';
+        if (section.items) {
+          body = section.items.map((item) => Object.entries(item).map(([k, v]) => `${k}: ${v}`).join(', ')).join('\n');
+        } else if (section.values) {
+          body = section.values.join(', ');
+        } else if (section.value) {
+          body = section.value;
+        }
+        return body ? `## ${sectionKey}\n${body}` : '';
       })
+      .filter(Boolean)
       .join('\n\n');
+    const sdsContent = `${metaLines}\n\n${sectionLines}`;
 
     try {
       const result = (await routeWithFallback(sdsContent, 'quiz_generation', {

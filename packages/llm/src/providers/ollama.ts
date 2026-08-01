@@ -1,6 +1,6 @@
 import type { TaskType, LlmResult, QuizGenerationOptions, SdsExtractionResult } from '../types';
 import { buildQuizPrompt, parseQuizResponse } from '../prompts';
-import { extractSectionsBatched } from '../batch-extract';
+import { extractSds } from '../batch-extract';
 
 const OLLAMA_MODEL = 'llama3.1:70b';
 
@@ -30,8 +30,8 @@ export async function callOllama(
   quizOptions?: QuizGenerationOptions,
 ): Promise<LlmResult> {
   if (task === 'sds_extraction') {
-    const sections = await extractSectionsBatched('ollama', prompt, callOnce);
-    return { sections, modelUsed: 'ollama', confidenceAdjusted: false } satisfies SdsExtractionResult;
+    const { metadata, sections } = await extractSds('ollama', prompt, callOnce);
+    return { metadata, sections, modelUsed: 'ollama', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
 
   // Ollama quiz responses are forced to human review

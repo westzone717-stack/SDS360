@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   if (hazard) filter.hazardLevel = hazard;
 
   const docs = await SdsDocumentModel.find(filter)
-    .select('productName casNumber hazardLevel version reviewStatus createdAt uploadedBy')
+    .select('productName supplier hazardLevel version reviewStatus createdAt uploadedBy')
     .sort({ createdAt: -1 })
     .limit(200)
     .lean();
@@ -64,14 +64,21 @@ export async function POST(req: Request) {
     const queue = new Queue('sds-extraction', {
       connection: bullmqConnectionOptions(),
     });
-    // attempts/backoff are job options (read by BullMQ from queue.add), not
-    // Worker options — they were previously (and uselessly) set on the Worker
-    // constructor in workers/src/index.ts, so failed extractions never
-    // actually retried despite looking configured to.
-    await queue.add('extract', { docId, customerId: session.user.customerId }, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 5000 },
-    });
+    try {
+      // attempts/backoff are job options (read by BullMQ from queue.add), not
+      // Worker options — they were previously (and uselessly) set on the Worker
+      // constructor in workers/src/index.ts, so failed extractions never
+      // actually retried despite looking configured to.
+      await queue.add('extract', { docId, customerId: session.user.customerId }, {
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+      });
+    } finally {
+      // Each request opens a fresh Redis connection for this Queue instance —
+      // without closing it, every upload leaks one open connection for the
+      // life of the container (found while investigating Upstash usage).
+      await queue.close();
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {

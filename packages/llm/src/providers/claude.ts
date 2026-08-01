@@ -1,7 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { TaskType, LlmResult, QuizGenerationOptions, SdsExtractionResult } from '../types';
 import { buildQuizPrompt, parseQuizResponse } from '../prompts';
-import { extractSectionsBatched } from '../batch-extract';
+import { extractSds } from '../batch-extract';
 
 // Lazily constructed so process.env.ANTHROPIC_API_KEY is read at call time,
 // not at module-import time — dotenv config() in workers/src/index.ts runs
@@ -32,8 +32,8 @@ export async function callClaude(
   quizOptions?: QuizGenerationOptions,
 ): Promise<LlmResult> {
   if (task === 'sds_extraction') {
-    const sections = await extractSectionsBatched('claude', prompt, callOnce);
-    return { sections, modelUsed: 'claude', confidenceAdjusted: false } satisfies SdsExtractionResult;
+    const { metadata, sections } = await extractSds('claude', prompt, callOnce);
+    return { metadata, sections, modelUsed: 'claude', confidenceAdjusted: false } satisfies SdsExtractionResult;
   }
 
   const fullPrompt = buildQuizPrompt(prompt, quizOptions?.count ?? 5, quizOptions?.existingQuestions ?? []);
