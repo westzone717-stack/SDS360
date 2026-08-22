@@ -5,6 +5,8 @@ import Link from 'next/link';
 import mongoose from 'mongoose';
 import { RefreshOnMount } from '@/components/RefreshOnMount';
 import { UserTrainingSearch } from './UserTrainingSearch';
+import { CourseFrame } from './CourseFrame';
+import { COURSE_URL } from './course';
 
 export const dynamic = 'force-dynamic';
 
@@ -56,6 +58,14 @@ export default async function TrainingPage() {
             <Link href="/training/quiz-bank" className="bg-blue-800 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-900">
               Manage Quiz Bank
             </Link>
+            <a
+              href={COURSE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50"
+            >
+              Preview Course ↗
+            </a>
             <button className="border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm hover:bg-gray-50">
               Send Reminder Emails
             </button>
@@ -70,93 +80,72 @@ export default async function TrainingPage() {
 
   const records = data.records ?? [];
   const latest = records[0] ?? null;
-  const history = records.slice(1);
   const now = new Date();
   const latestExpired = latest?.expiresAt ? new Date(latest.expiresAt) < now : true;
   const isCertified = latest?.pass && !latestExpired;
 
   return (
-    <div className="max-w-2xl">
+    <div>
       <RefreshOnMount />
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">My Training</h1>
 
-      {/* Latest result */}
-      {latest ? (
-        <div className={`rounded-xl border p-6 mb-4 ${isCertified ? 'bg-green-50 border-green-200' : 'bg-white border-gray-200'}`}>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="font-semibold text-gray-900">Latest Result</h2>
-            <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-              isCertified ? 'bg-green-100 text-green-700' :
-              latest.pass && latestExpired ? 'bg-gray-100 text-gray-500' :
-              'bg-red-100 text-red-700'
-            }`}>
-              {isCertified ? '✓ Certified' : latest.pass && latestExpired ? 'Expired' : '✗ Failed'}
+      {/* Status strip — compact so the course itself gets the screen */}
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900">My Training</h1>
+          {latest ? (
+            <span
+              className={`px-3 py-1 rounded-full text-xs font-medium ${
+                isCertified
+                  ? 'bg-green-100 text-green-700'
+                  : latest.pass && latestExpired
+                    ? 'bg-gray-100 text-gray-500'
+                    : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {isCertified
+                ? `✓ Certified · ${latest.score}% · expires ${new Date(latest.expiresAt).toLocaleDateString()}`
+                : latest.pass && latestExpired
+                  ? `Expired ${new Date(latest.expiresAt).toLocaleDateString()}`
+                  : `✗ Not passed · ${latest.score}%`}
             </span>
-          </div>
-          <div className="grid grid-cols-3 gap-4 text-center">
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{latest.score}%</p>
-              <p className="text-xs text-gray-500">Score</p>
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-gray-900">{latest.correctAnswers}/{latest.totalQuestions}</p>
-              <p className="text-xs text-gray-500">Correct</p>
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">{new Date(latest.completedAt).toLocaleDateString()}</p>
-              <p className="text-xs text-gray-500">Completed</p>
-              {isCertified && (
-                <p className="text-xs text-green-600 mt-1">Expires {new Date(latest.expiresAt).toLocaleDateString()}</p>
-              )}
-            </div>
-          </div>
+          ) : (
+            <span className="px-3 py-1 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+              Training required
+            </span>
+          )}
         </div>
-      ) : (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-6 mb-4">
-          <h2 className="font-semibold text-amber-900 mb-1">Training Required</h2>
-          <p className="text-sm text-amber-700">Complete the safety training to access all platform features.</p>
+        <div className="flex items-center gap-3">
+          <a
+            href={COURSE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-gray-500 hover:text-gray-700"
+          >
+            Open in new tab ↗
+          </a>
+          <Link
+            href="/training/history"
+            className="border border-gray-300 text-gray-700 px-4 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50"
+          >
+            History{records.length > 0 ? ` (${records.length})` : ''}
+          </Link>
+          <Link
+            href="/training/quiz"
+            className="bg-blue-800 text-white px-5 py-2.5 rounded-xl text-sm font-medium hover:bg-blue-900"
+          >
+            {latest ? 'Retake Certification Quiz' : 'Take Certification Quiz'}
+          </Link>
         </div>
-      )}
+      </div>
 
-      <Link
-        href="/training/quiz"
-        className="block w-full text-center bg-blue-800 text-white px-6 py-3 rounded-xl text-sm font-medium hover:bg-blue-900 mb-6"
-      >
-        {latest ? 'Retake Training' : 'Start Training'}
-      </Link>
+      {/* The course, embedded from the external training app */}
+      <CourseFrame />
 
-      {/* History */}
-      {history.length > 0 && (
-        <div>
-          <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">History</h2>
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Score</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Correct</th>
-                  <th className="px-4 py-2.5 text-left text-xs font-medium text-gray-500 uppercase">Result</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {history.map((r, i) => (
-                  <tr key={i} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-600">{new Date(r.completedAt).toLocaleDateString()}</td>
-                    <td className="px-4 py-3 font-medium text-gray-900">{r.score}%</td>
-                    <td className="px-4 py-3 text-gray-600">{r.correctAnswers}/{r.totalQuestions}</td>
-                    <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.pass ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {r.pass ? 'Passed' : 'Failed'}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
+      <p className="text-xs text-gray-500 mt-3">
+        Work through every module above, then take the certification quiz. A score of 80% or higher certifies
+        you for one year.
+      </p>
+
     </div>
   );
 }

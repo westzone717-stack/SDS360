@@ -12,6 +12,7 @@ function buildNav(role: UserRole) {
 
   if (role === 'user') {
     items.push({ href: '/training', label: 'My Training' });
+    items.push({ href: '/training/history', label: 'Training History' });
     items.push({ href: '/analysis', label: 'Analysis' });
   }
 
