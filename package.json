@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "build": "turbo run build",
+    "deploy:app": "VERCEL_ORG_ID=team_XULYixe6ZcjzOSe2990wEAp5 VERCEL_PROJECT_ID=prj_00LCsyMRmIHa88LnjcIbOaXF5UqB npx vercel@latest --prod",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
