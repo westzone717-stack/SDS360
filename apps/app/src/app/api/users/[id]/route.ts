@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
+import { MANAGEABLE_ROLES, canManage } from '@/lib/user-permissions';
 
 const updateSchema = z.object({
   status: z.enum(['active', 'suspended']).optional(),
@@ -15,11 +16,7 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const isAdmin = session.user.role === 'admin';
-  const isAccessManager = session.user.role === 'access_manager';
-
-  // access_manager can only change status of admins; admin can change users
-  if (!isAdmin && !isAccessManager) {
+  if (!MANAGEABLE_ROLES[session.user.role]) {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
 
@@ -31,9 +28,12 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
     const target = await UserModel.findOne({ _id: params.id, customerId: session.user.customerId });
     if (!target) return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
 
-    // access_manager can only manage admins, not users
-    if (isAccessManager && target.role !== 'admin') {
-      return NextResponse.json({ success: false, error: 'Access Manager can only manage Admin accounts' }, { status: 403 });
+    if (!canManage({ id: session.user.id, role: session.user.role }, { id: String(target._id), role: target.role })) {
+      return NextResponse.json({ success: false, error: 'You cannot manage this account' }, { status: 403 });
+    }
+    // Pending requests go through approve/reject, which also issues the first password
+    if (updates.status && target.status === 'pending') {
+      return NextResponse.json({ success: false, error: 'Approve or reject this request instead' }, { status: 400 });
     }
 
     const before = { status: target.status, visibleModules: target.visibleModules };

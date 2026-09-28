@@ -3,10 +3,8 @@ import { redirect } from 'next/navigation';
 import { connectDb, UserModel } from '@sds360/db';
 import mongoose from 'mongoose';
 import type { UserRole, UserStatus } from '@sds360/types';
-import PendingActions, { ResetPasswordButton } from './PendingActions';
-
-// Mirrors RESETTABLE in /api/users/[id]/reset-password
-const RESETTABLE: Record<string, string[]> = { access_manager: ['admin', 'user'], admin: ['user'] };
+import PendingActions, { ResetPasswordButton, StatusToggleButton } from './PendingActions';
+import { canManage } from '@/lib/user-permissions';
 
 const roleBadge: Record<UserRole, string> = {
   super_admin: 'bg-purple-100 text-purple-700',
@@ -53,7 +51,7 @@ export default async function UsersPage() {
 
       {isReadOnly && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
-          You can approve pending access requests and reset Admin and User passwords. Other user management is read-only.
+          You can approve access requests, reset passwords, and deactivate or reactivate Admin and User accounts.
         </div>
       )}
 
@@ -89,8 +87,11 @@ export default async function UsersPage() {
                     <PendingActions userId={String(u._id)} name={u.name} />
                   ) : (
                     <div className="flex items-center justify-end gap-3">
-                      {RESETTABLE[role]?.includes(u.role) && String(u._id) !== session!.user.id && (
-                        <ResetPasswordButton userId={String(u._id)} email={u.email} />
+                      {canManage({ id: session!.user.id, role: role! }, { id: String(u._id), role: u.role }) && (
+                        <>
+                          {u.status === 'active' && <ResetPasswordButton userId={String(u._id)} email={u.email} />}
+                          <StatusToggleButton userId={String(u._id)} email={u.email} status={u.status} />
+                        </>
                       )}
                       {!isReadOnly && <button className="text-blue-600 hover:text-blue-800 text-xs font-medium">Manage</button>}
                     </div>

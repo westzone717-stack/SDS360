@@ -3,13 +3,7 @@ import { auth } from '@/lib/auth';
 import { connectDb, UserModel, AuditLogModel } from '@sds360/db';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword, trySendEmail, loginUrlFor } from '@/lib/credentials';
-
-// Who may reset whose password (within the same customer). Access managers'
-// own passwords are reset by the super admin in the admin portal.
-const RESETTABLE: Record<string, string[]> = {
-  access_manager: ['admin', 'user'],
-  admin: ['user'],
-};
+import { MANAGEABLE_ROLES } from '@/lib/user-permissions';
 
 // POST /api/users/[id]/reset-password — issue a temporary password, shown once to the caller
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -17,7 +11,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   if (!session?.user?.customerId) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  const allowedRoles = RESETTABLE[session.user.role];
+  const allowedRoles = MANAGEABLE_ROLES[session.user.role];
   if (!allowedRoles) {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
@@ -30,7 +24,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     const target = await UserModel.findOne({
       _id: params.id,
       customerId: session.user.customerId,
-      role: { $in: allowedRoles },
+      role: { $in: [...allowedRoles] },
       status: { $ne: 'pending' }, // pending requests get a password when approved
     });
     if (!target) return NextResponse.json({ success: false, error: 'User not found' }, { status: 404 });

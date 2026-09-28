@@ -127,3 +127,49 @@ function IssuedPassword({ issued, onDone }: { issued: Issued; onDone: () => void
     </div>
   );
 }
+
+export function StatusToggleButton({ userId, email, status }: { userId: string; email: string; status: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const deactivating = status === 'active';
+
+  async function toggle() {
+    const msg = deactivating
+      ? `Deactivate ${email}? They will no longer be able to log in.`
+      : `Reactivate ${email}? They will be able to log in again with their existing password.`;
+    if (!confirm(msg)) return;
+    setBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: deactivating ? 'suspended' : 'active' }),
+      });
+      const json = (await res.json()) as { success: boolean; error?: string };
+      if (!json.success) throw new Error(json.error ?? 'Update failed');
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Update failed');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-end gap-2">
+      {error && <span className="text-xs text-red-600">{error}</span>}
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={busy}
+        className={`text-xs font-medium disabled:opacity-50 ${
+          deactivating ? 'text-red-600 hover:text-red-800' : 'text-green-700 hover:text-green-900'
+        }`}
+      >
+        {busy ? 'Saving…' : deactivating ? 'Deactivate' : 'Reactivate'}
+      </button>
+    </div>
+  );
+}
