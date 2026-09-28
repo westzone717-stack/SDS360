@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
+import bcrypt from 'bcryptjs';
+import { generateTempPassword, trySendEmail, loginUrlFor } from '@/lib/credentials';
 
 export async function GET() {
   const session = await auth();
@@ -38,9 +40,16 @@ export async function POST(req: Request) {
     const { userId, action } = approveSchema.parse(body);
 
     await connectDb();
+
+    // Self-registered users have no password yet, so approval issues a temporary one
+    const tempPassword = action === 'approve' ? generateTempPassword() : undefined;
+    const update = tempPassword
+      ? { status: 'active', passwordHash: await bcrypt.hash(tempPassword, 10), forcePasswordChange: true }
+      : { status: 'suspended' };
+
     const user = await UserModel.findOneAndUpdate(
       { _id: userId, customerId: session.user.customerId, role: 'user', status: 'pending' },
-      { status: action === 'approve' ? 'active' : 'suspended' },
+      update,
       { new: true }
     );
 
@@ -57,7 +66,28 @@ export async function POST(req: Request) {
       after: { status: user.status },
     });
 
-    return NextResponse.json({ success: true, data: { status: user.status } });
+    if (!tempPassword) {
+      return NextResponse.json({ success: true, data: { status: user.status } });
+    }
+
+    const loginUrl = loginUrlFor(req);
+    const emailed = await trySendEmail(
+      user.email,
+      'Your SDS 360 Access Has Been Approved',
+      `
+        <h2>Welcome to SDS 360</h2>
+        <p>Hi ${user.name}, your access request has been approved.</p>
+        <p><strong>Email:</strong> ${user.email}</p>
+        <p><strong>Temporary Password:</strong> ${tempPassword}</p>
+        <p>You will be required to set a new password on first login.</p>
+        <p><a href="${loginUrl}">Login →</a></p>
+      `
+    );
+
+    return NextResponse.json({
+      success: true,
+      data: { status: user.status, email: user.email, role: user.role, tempPassword, emailed, loginUrl },
+    });
   } catch (err) {
     if (err instanceof z.ZodError) {
       return NextResponse.json({ success: false, error: err.errors[0].message }, { status: 400 });
