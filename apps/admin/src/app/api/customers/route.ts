@@ -2,9 +2,9 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, CustomerModel, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
-import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { normalizeDomain, isValidDomain, isPublicEmailDomain, emailDomain } from '@sds360/types';
+import { generateTempPassword, trySendEmail, appLoginUrl, type IssuedCredential } from '@/lib/credentials';
 
 
 const email = z.string().trim().toLowerCase().pipe(z.string().email());
@@ -43,10 +43,6 @@ const createSchema = z
     }
   });
 
-function generatePassword(): string {
-  return crypto.randomBytes(9).toString('base64url').slice(0, 12);
-}
-
 export async function GET() {
   const session = await auth();
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -74,6 +70,23 @@ export async function POST(req: Request) {
       );
     }
 
+    const accountsToCreate: Array<{ email: string; name: string; role: 'access_manager' | 'admin' }> = [
+      { email: data.accessManagerEmail, name: data.accessManagerName, role: 'access_manager' },
+      ...data.adminEmails.map((email) => ({ email, name: email.split('@')[0], role: 'admin' as const })),
+    ];
+    // Check up front so a clash doesn't leave a customer with half its accounts
+    const emails = accountsToCreate.map((a) => a.email);
+    if (new Set(emails).size !== emails.length) {
+      return NextResponse.json({ success: false, error: 'Each initial account needs a different email' }, { status: 400 });
+    }
+    const taken = await UserModel.find({ email: { $in: emails } }).select('email').lean<{ email: string }[]>();
+    if (taken.length) {
+      return NextResponse.json(
+        { success: false, error: `Email already in use: ${taken.map((u) => u.email).join(', ')}` },
+        { status: 409 }
+      );
+    }
+
     const contractExpiresAt = new Date();
     contractExpiresAt.setMonth(contractExpiresAt.getMonth() + data.contractMonths);
 
@@ -87,17 +100,11 @@ export async function POST(req: Request) {
     });
 
     const customerId = customer._id;
-    const accountsToCreate: Array<{ email: string; name: string; role: 'access_manager' | 'admin' }> = [
-      { email: data.accessManagerEmail, name: data.accessManagerName, role: 'access_manager' },
-      ...data.adminEmails.filter(Boolean).map((email) => ({ email, name: email.split('@')[0], role: 'admin' as const })),
-    ];
-
-    const { Resend } = await import('resend');
-    const resend = new Resend(process.env.RESEND_API_KEY);
+    const credentials: IssuedCredential[] = [];
 
     for (const account of accountsToCreate) {
-      const password = generatePassword();
-      const passwordHash = await bcrypt.hash(password, 10);
+      const tempPassword = generateTempPassword();
+      const passwordHash = await bcrypt.hash(tempPassword, 10);
       await UserModel.create({
         customerId,
         email: account.email,
@@ -108,19 +115,19 @@ export async function POST(req: Request) {
         forcePasswordChange: true,
       });
 
-      await resend.emails.send({
-        from: process.env.EMAIL_FROM ?? 'noreply@sds360.com',
-        to: account.email,
-        subject: `Welcome to SDS 360 — Your ${account.role === 'access_manager' ? 'Access Manager' : 'Admin'} Account`,
-        html: `
+      const emailed = await trySendEmail(
+        account.email,
+        `Welcome to SDS 360 — Your ${account.role === 'access_manager' ? 'Access Manager' : 'Admin'} Account`,
+        `
           <h2>Welcome to SDS 360</h2>
           <p>An account has been created for you at <strong>${data.name}</strong>.</p>
-          <p><strong>Login URL:</strong> ${process.env.APP_URL ?? 'https://app.sds360.com'}/login</p>
+          <p><strong>Login URL:</strong> ${appLoginUrl()}</p>
           <p><strong>Email:</strong> ${account.email}</p>
-          <p><strong>Temporary Password:</strong> ${password}</p>
+          <p><strong>Temporary Password:</strong> ${tempPassword}</p>
           <p>You will be required to change your password on first login.</p>
-        `,
-      });
+        `
+      );
+      credentials.push({ ...account, tempPassword, emailed });
     }
 
     await AuditLogModel.create({
@@ -133,7 +140,8 @@ export async function POST(req: Request) {
       after: { name: data.name, plan: data.plan },
     });
 
-    return NextResponse.json({ success: true, data: { customerId: customer._id } });
+    // Temporary passwords are returned once so the super admin can hand them over
+    return NextResponse.json({ success: true, data: { customerId: customer._id, credentials, loginUrl: appLoginUrl() } });
   } catch (err) {
     console.error('[POST /api/customers]', err);
     if (err instanceof z.ZodError) {

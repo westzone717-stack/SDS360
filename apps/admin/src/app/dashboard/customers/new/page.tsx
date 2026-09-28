@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import TempPasswordCard, { type TempCredential } from '@/components/TempPasswordCard';
 
 interface FormData {
   name: string;
@@ -21,6 +22,7 @@ export default function NewCustomerPage() {
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [created, setCreated] = useState<{ credentials: TempCredential[]; loginUrl: string } | null>(null);
   const [form, setForm] = useState<FormData>({
     name: '',
     domain: '',
@@ -45,15 +47,41 @@ export default function NewCustomerPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       });
-      const data = (await res.json()) as { success: boolean; error?: string };
-      if (data.success) {
-        router.push('/dashboard/customers');
+      const data = (await res.json()) as {
+        success: boolean;
+        error?: string;
+        data?: { customerId: string; credentials: TempCredential[]; loginUrl: string };
+      };
+      if (data.success && data.data) {
+        setCreated({ credentials: data.data.credentials, loginUrl: data.data.loginUrl });
       } else {
         setError(data.error ?? 'Failed to create customer');
       }
+    } catch {
+      setError('Network error — check the customer list before retrying');
     } finally {
       setLoading(false);
     }
+  }
+
+  if (created) {
+    return (
+      <div className="max-w-2xl">
+        <h1 className="text-2xl font-bold text-gray-900 mb-2">Customer created</h1>
+        <p className="text-sm text-gray-600 mb-6">
+          <span className="font-medium">{form.name}</span> is active. Its initial accounts are below.
+        </p>
+        <TempPasswordCard credentials={created.credentials} loginUrl={created.loginUrl} />
+        <div className="flex justify-end mt-6">
+          <button
+            onClick={() => router.push('/dashboard/customers')}
+            className="px-4 py-2 text-sm bg-blue-800 text-white rounded-lg hover:bg-blue-900"
+          >
+            I&apos;ve saved these — go to customers
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -157,7 +185,7 @@ export default function NewCustomerPage() {
             <Row label="Access Manager" value={`${form.accessManagerName} <${form.accessManagerEmail}>`} />
             <Row label="Admins" value={form.adminEmails.filter(Boolean).join(', ') || '—'} />
             <p className="text-gray-500 text-xs mt-4">
-              12-character passwords will be auto-generated and sent via invitation email. All recipients must change their password on first login.
+              A 12-character temporary password is generated for each account and shown on the next screen (only once) for you to hand over. All recipients must change their password on first login.
             </p>
             {error && <p className="text-red-600">{error}</p>}
           </div>

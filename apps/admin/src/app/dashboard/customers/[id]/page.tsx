@@ -2,6 +2,7 @@ import { connectDb, CustomerModel, UserModel } from '@sds360/db';
 import type { CustomerDoc, UserDoc } from '@sds360/db';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
+import ResetPasswordButton from './ResetPasswordButton';
 
 async function getData(id: string) {
   await connectDb();
@@ -67,6 +68,7 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
               {['Name', 'Email', 'Role', 'Status'].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -79,6 +81,11 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${u.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}`}>
                     {u.status}
                   </span>
+                </td>
+                <td className="px-4 py-3 text-right">
+                  {(u.role === 'access_manager' || u.role === 'admin') && (
+                    <ResetPasswordButton customerId={params.id} userId={String(u._id)} email={u.email} />
+                  )}
                 </td>
               </tr>
             ))}

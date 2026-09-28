@@ -56,21 +56,28 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true });
     }
 
-    // Lazy-import Resend so the module is never evaluated at build time
-    const { Resend } = await import('resend');
-    const resend = new Resend(process.env.RESEND_API_KEY);
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM ?? 'noreply@sds360.com',
-      to: approvers.map((u) => u.email),
-      subject: 'New User Registration Request — SDS 360',
-      html: `
-        <h2>New Access Request</h2>
-        <p><strong>${data.name}</strong> (${data.email}) has requested access.</p>
-        <p>Department: ${data.department ?? 'Not specified'}</p>
-        <p>Log in to approve or reject this request in User Management.</p>
-        <a href="${process.env.APP_URL}/users">Review Request →</a>
-      `,
-    });
+    // Best-effort: no mail service yet — the request still shows up in User Management
+    if (process.env.RESEND_API_KEY) {
+      try {
+        // Lazy-import Resend so the module is never evaluated at build time
+        const { Resend } = await import('resend');
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        await resend.emails.send({
+          from: process.env.EMAIL_FROM ?? 'noreply@sds360.com',
+          to: approvers.map((u) => u.email),
+          subject: 'New User Registration Request — SDS 360',
+          html: `
+            <h2>New Access Request</h2>
+            <p><strong>${data.name}</strong> (${data.email}) has requested access.</p>
+            <p>Department: ${data.department ?? 'Not specified'}</p>
+            <p>Log in to approve or reject this request in User Management.</p>
+            <a href="${process.env.APP_URL}/users">Review Request →</a>
+          `,
+        });
+      } catch (err) {
+        console.warn('[register] notification email failed', err);
+      }
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
