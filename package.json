@@ -5,11 +5,13 @@
   "scripts": {
     "build": "turbo run build",
     "deploy:app": "VERCEL_ORG_ID=team_XULYixe6ZcjzOSe2990wEAp5 VERCEL_PROJECT_ID=prj_00LCsyMRmIHa88LnjcIbOaXF5UqB npx vercel@latest --prod",
+    "deploy:admin": "VERCEL_ORG_ID=team_XULYixe6ZcjzOSe2990wEAp5 VERCEL_PROJECT_ID=prj_EzYFyFVye8HF46GLgl8BUYiVK3u9 npx vercel@latest --prod",
     "dev": "turbo run dev",
     "lint": "turbo run lint",
     "type-check": "turbo run type-check",
     "format": "prettier --write \"**/*.{ts,tsx,json,md}\"",
-    "seed": "tsx scripts/seed.ts"
+    "seed": "tsx scripts/seed.ts",
+    "create-superadmin": "tsx scripts/create-superadmin.ts"
   },
   "devDependencies": {
     "turbo": "^2.3.0",
