@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation';
 import { connectDb, UserModel } from '@sds360/db';
 import mongoose from 'mongoose';
 import type { UserRole, UserStatus } from '@sds360/types';
+import PendingActions from './PendingActions';
 
 const roleBadge: Record<UserRole, string> = {
   super_admin: 'bg-purple-100 text-purple-700',
@@ -49,7 +50,7 @@ export default async function UsersPage() {
 
       {isReadOnly && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
-          You have read-only access to user management.
+          You can approve or reject pending access requests. Other user management is read-only.
         </div>
       )}
 
@@ -60,7 +61,7 @@ export default async function UsersPage() {
               {['Name', 'Email', 'Role', 'Department', 'Status', 'Joined'].map((h) => (
                 <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
               ))}
-              {!isReadOnly && <th className="px-4 py-3" />}
+              <th className="px-4 py-3" />
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -80,11 +81,13 @@ export default async function UsersPage() {
                   </span>
                 </td>
                 <td className="px-4 py-3 text-gray-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
-                {!isReadOnly && (
-                  <td className="px-4 py-3 text-right">
-                    <button className="text-blue-600 hover:text-blue-800 text-xs font-medium">Manage</button>
-                  </td>
-                )}
+                <td className="px-4 py-3 text-right">
+                  {u.role === 'user' && u.status === 'pending' ? (
+                    <PendingActions userId={String(u._id)} name={u.name} />
+                  ) : (
+                    !isReadOnly && <button className="text-blue-600 hover:text-blue-800 text-xs font-medium">Manage</button>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

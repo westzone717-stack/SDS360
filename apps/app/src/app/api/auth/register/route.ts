@@ -32,11 +32,12 @@ export async function POST(req: Request) {
     const customer = await CustomerModel.findOne({ domain, status: 'active' });
     if (!customer) return noMatch;
 
-    // Only admins can approve requests; fall back to access managers so someone is told
-    let approvers = await UserModel.find({ customerId: customer._id, role: 'admin', status: 'active' }).select('email');
-    if (!approvers.length) {
-      approvers = await UserModel.find({ customerId: customer._id, role: 'access_manager', status: 'active' }).select('email');
-    }
+    // Admins and access managers can both approve requests
+    const approvers = await UserModel.find({
+      customerId: customer._id,
+      role: { $in: ['admin', 'access_manager'] },
+      status: 'active',
+    }).select('email');
 
     await UserModel.create({
       customerId: customer._id,

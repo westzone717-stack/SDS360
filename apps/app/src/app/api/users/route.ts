@@ -28,7 +28,8 @@ export async function POST(req: Request) {
   if (!session?.user?.customerId) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
-  if (session.user.role !== 'admin') {
+  // Both admins and access managers can approve/reject self-registration requests
+  if (!['admin', 'access_manager'].includes(session.user.role)) {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
 
@@ -38,7 +39,7 @@ export async function POST(req: Request) {
 
     await connectDb();
     const user = await UserModel.findOneAndUpdate(
-      { _id: userId, customerId: session.user.customerId, status: 'pending' },
+      { _id: userId, customerId: session.user.customerId, role: 'user', status: 'pending' },
       { status: action === 'approve' ? 'active' : 'suspended' },
       { new: true }
     );
