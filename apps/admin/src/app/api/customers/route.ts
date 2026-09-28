@@ -4,18 +4,44 @@ import { connectDb, CustomerModel, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
+import { normalizeDomain, isValidDomain, isPublicEmailDomain, emailDomain } from '@sds360/types';
 
 
-const createSchema = z.object({
-  name: z.string().min(1),
-  domain: z.string().optional(),
-  plan: z.enum(['starter', 'professional', 'enterprise']),
-  contractMonths: z.number().int().min(1).max(60),
-  maxUsers: z.number().int().min(1),
-  accessManagerEmail: z.string().email(),
-  accessManagerName: z.string().min(1),
-  adminEmails: z.array(z.string().email()).max(3),
-});
+const email = z.string().trim().toLowerCase().pipe(z.string().email());
+
+const createSchema = z
+  .object({
+    name: z.string().min(1),
+    // Blank → undefined; otherwise normalized ("@Acme.com" → "acme.com")
+    domain: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() ? normalizeDomain(v) : undefined),
+      z
+        .string()
+        .refine(isValidDomain, 'Invalid domain (expected e.g. acme.com)')
+        .refine((d) => !isPublicEmailDomain(d), 'Public email domains (gmail.com, hotmail.com, …) cannot be a customer domain')
+        .optional()
+    ),
+    plan: z.enum(['starter', 'professional', 'enterprise']),
+    contractMonths: z.number().int().min(1).max(60),
+    maxUsers: z.number().int().min(1),
+    accessManagerEmail: email,
+    accessManagerName: z.string().min(1),
+    // The form always sends at least one (possibly blank) admin field — drop blanks before validating
+    adminEmails: z.preprocess(
+      (v) => (Array.isArray(v) ? v.map((e) => String(e).trim()).filter(Boolean) : v),
+      z.array(email).max(3)
+    ),
+  })
+  .superRefine((data, ctx) => {
+    if (!data.domain) return;
+    const mismatched = [data.accessManagerEmail, ...data.adminEmails].filter((e) => emailDomain(e) !== data.domain);
+    if (mismatched.length) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `Email must end with @${data.domain}: ${mismatched.join(', ')}`,
+      });
+    }
+  });
 
 function generatePassword(): string {
   return crypto.randomBytes(9).toString('base64url').slice(0, 12);
@@ -39,6 +65,14 @@ export async function POST(req: Request) {
     const data = createSchema.parse(body);
 
     await connectDb();
+
+    // Self-registration routes users by domain, so it must identify exactly one customer
+    if (data.domain && (await CustomerModel.exists({ domain: data.domain }))) {
+      return NextResponse.json(
+        { success: false, error: `Another customer already uses the domain ${data.domain}` },
+        { status: 409 }
+      );
+    }
 
     const contractExpiresAt = new Date();
     contractExpiresAt.setMonth(contractExpiresAt.getMonth() + data.contractMonths);

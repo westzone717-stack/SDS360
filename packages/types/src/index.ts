@@ -52,6 +52,7 @@ export type LlmProvider = 'claude' | 'gpt' | 'ollama';
 // Re-exported from sds-schema.ts — the canonical field definition (top-level
 // metadata + 6 sections, mostly select/multi-select) plus the stored-value shapes.
 export * from './sds-schema';
+export * from './domain';
 import type { SdsSectionsMap } from './sds-schema';
 
 export interface SdsDocument {

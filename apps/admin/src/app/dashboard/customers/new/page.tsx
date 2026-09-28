@@ -87,6 +87,9 @@ export default function NewCustomerPage() {
             </Field>
             <Field label="Domain">
               <input className={inputCls} value={form.domain} onChange={(e) => update('domain', e.target.value)} placeholder="acme.com" />
+              <p className="text-xs text-gray-500 mt-1">
+                Company-owned domain only (not gmail.com, hotmail.com, …). If set, all initial accounts must use it, and employees with this email domain can request access. Leave blank to disable self-registration.
+              </p>
             </Field>
           </div>
         )}
