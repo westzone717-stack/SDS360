@@ -3,8 +3,8 @@ import { redirect } from 'next/navigation';
 import { connectDb, UserModel } from '@sds360/db';
 import mongoose from 'mongoose';
 import type { UserRole, UserStatus } from '@sds360/types';
-import PendingActions, { ResetPasswordButton, StatusToggleButton } from './PendingActions';
-import { canManage } from '@/lib/user-permissions';
+import PendingActions, { ResetPasswordButton, StatusToggleButton, EditUserButton } from './PendingActions';
+import { canManage, canEditProfile, canEditEmail, canChangeRole, approvableRoles } from '@/lib/user-permissions';
 
 const roleBadge: Record<UserRole, string> = {
   super_admin: 'bg-purple-100 text-purple-700',
@@ -19,12 +19,22 @@ const statusBadge: Record<UserStatus, string> = {
   suspended: 'bg-red-100 text-red-700',
 };
 
+type UserRow = {
+  _id: unknown;
+  name: string;
+  email: string;
+  role: string;
+  status: string;
+  department?: string;
+  createdAt: Date;
+};
+
 async function getUsers(customerId: string) {
   await connectDb();
   return UserModel.find({ customerId: new mongoose.Types.ObjectId(customerId) })
     .select('name email role status department createdAt')
     .sort({ role: 1, createdAt: -1 })
-    .lean();
+    .lean<UserRow[]>();
 }
 
 export default async function UsersPage() {
@@ -37,6 +47,7 @@ export default async function UsersPage() {
 
   const users = await getUsers(session!.user.customerId!);
   const isReadOnly = role === 'access_manager';
+  const me = { id: session!.user.id, role: role! };
 
   return (
     <div>
@@ -51,7 +62,7 @@ export default async function UsersPage() {
 
       {isReadOnly && (
         <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm text-blue-700">
-          You can approve access requests, reset passwords, and deactivate or reactivate Admin and User accounts.
+          You can approve access requests (as User or Admin), edit anyone&apos;s details, change roles, reset passwords, and deactivate or reactivate Admin and User accounts.
         </div>
       )}
 
@@ -84,17 +95,9 @@ export default async function UsersPage() {
                 <td className="px-4 py-3 text-gray-500 text-xs">{new Date(u.createdAt).toLocaleDateString()}</td>
                 <td className="px-4 py-3 text-right">
                   {u.role === 'user' && u.status === 'pending' ? (
-                    <PendingActions userId={String(u._id)} name={u.name} />
+                    <PendingActions userId={String(u._id)} name={u.name} roles={approvableRoles(me.role)} />
                   ) : (
-                    <div className="flex items-center justify-end gap-3">
-                      {canManage({ id: session!.user.id, role: role! }, { id: String(u._id), role: u.role }) && (
-                        <>
-                          {u.status === 'active' && <ResetPasswordButton userId={String(u._id)} email={u.email} />}
-                          <StatusToggleButton userId={String(u._id)} email={u.email} status={u.status} />
-                        </>
-                      )}
-                      {!isReadOnly && <button className="text-blue-600 hover:text-blue-800 text-xs font-medium">Manage</button>}
-                    </div>
+                    <RowActions me={me} u={u} />
                   )}
                 </td>
               </tr>
@@ -102,6 +105,33 @@ export default async function UsersPage() {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function RowActions({
+  me,
+  u,
+}: {
+  me: { id: string; role: string };
+  u: UserRow;
+}) {
+  const subject = { id: String(u._id), role: u.role };
+  return (
+    <div className="flex items-center justify-end gap-3">
+      {canEditProfile(me, subject) && (
+        <EditUserButton
+          user={{ id: subject.id, name: u.name, department: u.department ?? '', email: u.email, role: u.role }}
+          canEditEmail={canEditEmail(me, subject)}
+          canEditRole={canChangeRole(me, subject)}
+        />
+      )}
+      {canManage(me, subject) && (
+        <>
+          {u.status === 'active' && <ResetPasswordButton userId={subject.id} email={u.email} />}
+          <StatusToggleButton userId={subject.id} email={u.email} status={u.status} />
+        </>
+      )}
     </div>
   );
 }

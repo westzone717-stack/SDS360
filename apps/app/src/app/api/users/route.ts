@@ -4,6 +4,7 @@ import { connectDb, UserModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { generateTempPassword, trySendEmail, loginUrlFor } from '@/lib/credentials';
+import { approvableRoles } from '@/lib/user-permissions';
 
 export async function GET() {
   const session = await auth();
@@ -23,7 +24,12 @@ export async function GET() {
   return NextResponse.json({ success: true, data: users });
 }
 
-const approveSchema = z.object({ userId: z.string(), action: z.enum(['approve', 'reject']) });
+const approveSchema = z.object({
+  userId: z.string(),
+  action: z.enum(['approve', 'reject']),
+  // Role to grant on approval; only access managers may approve someone as admin
+  role: z.enum(['user', 'admin']).default('user'),
+});
 
 export async function POST(req: Request) {
   const session = await auth();
@@ -37,14 +43,24 @@ export async function POST(req: Request) {
 
   try {
     const body = await req.json() as unknown;
-    const { userId, action } = approveSchema.parse(body);
+    const { userId, action, role } = approveSchema.parse(body);
+    if (action === 'approve' && !approvableRoles(session.user.role).includes(role)) {
+      return NextResponse.json({ success: false, error: 'Only an Access Manager can approve someone as Admin' }, { status: 403 });
+    }
 
     await connectDb();
 
     // Self-registered users have no password yet, so approval issues a temporary one
     const tempPassword = action === 'approve' ? generateTempPassword() : undefined;
     const update = tempPassword
-      ? { status: 'active', passwordHash: await bcrypt.hash(tempPassword, 10), forcePasswordChange: true }
+      ? {
+          status: 'active',
+          passwordHash: await bcrypt.hash(tempPassword, 10),
+          forcePasswordChange: true,
+          role,
+          // Admins aren't training-gated and get the full admin nav
+          ...(role === 'admin' ? { trainingStatus: { required: false }, visibleModules: [] } : {}),
+        }
       : { status: 'suspended' };
 
     const user = await UserModel.findOneAndUpdate(
@@ -63,7 +79,7 @@ export async function POST(req: Request) {
       action: action === 'approve' ? 'activate' : 'suspend',
       resource: 'user',
       resourceId: userId,
-      after: { status: user.status },
+      after: { status: user.status, ...(action === 'approve' ? { role } : {}) },
     });
 
     if (!tempPassword) {

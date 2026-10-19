@@ -30,6 +30,8 @@ function buildNav(role: UserRole) {
     items.push({ href: '/users', label: 'User Management' });
   }
 
+  items.push({ href: '/profile', label: 'My Profile' });
+
   return items;
 }
 

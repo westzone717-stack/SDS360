@@ -56,7 +56,10 @@ export default auth((req) => {
       nextUrl.pathname.startsWith('/sds') ||
       nextUrl.pathname.startsWith('/api/sds') ||
       nextUrl.pathname.startsWith('/analysis') ||
-      nextUrl.pathname.startsWith('/api/analysis');
+      nextUrl.pathname.startsWith('/api/analysis') ||
+      // Own profile; /api/users enforces its own per-role permissions
+      nextUrl.pathname.startsWith('/profile') ||
+      nextUrl.pathname.startsWith('/api/users');
     if (!isAllowedWithoutTraining && !isPublic) {
       return Response.redirect(new URL('/training', nextUrl));
     }

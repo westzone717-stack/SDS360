@@ -3,11 +3,22 @@
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import TempPasswordCard, { type TempCredential } from '@/components/TempPasswordCard';
+import EditUserForm, { type EditableUser } from '@/components/EditUserForm';
 
 type Issued = { credential: TempCredential; loginUrl: string };
 
-export default function PendingActions({ userId, name }: { userId: string; name: string }) {
+export default function PendingActions({
+  userId,
+  name,
+  roles = ['user'],
+}: {
+  userId: string;
+  name: string;
+  /** Roles the current user may approve this request as; a picker shows when there's a choice */
+  roles?: readonly string[];
+}) {
   const router = useRouter();
+  const [role, setRole] = useState(roles[0] ?? 'user');
   const [busy, setBusy] = useState<'approve' | 'reject' | null>(null);
   const [error, setError] = useState('');
   const [issued, setIssued] = useState<Issued | null>(null);
@@ -20,7 +31,7 @@ export default function PendingActions({ userId, name }: { userId: string; name:
       const res = await fetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId, action }),
+        body: JSON.stringify({ userId, action, role }),
       });
       const json = (await res.json()) as {
         success: boolean;
@@ -52,6 +63,21 @@ export default function PendingActions({ userId, name }: { userId: string; name:
   return (
     <div className="flex items-center justify-end gap-2">
       {error && <span className="text-xs text-red-600">{error}</span>}
+      {roles.length > 1 && (
+        <select
+          aria-label="Approve as"
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          disabled={busy !== null}
+          className="border border-gray-300 rounded-md text-xs px-1.5 py-1 bg-white"
+        >
+          {roles.map((r) => (
+            <option key={r} value={r}>
+              as {r === 'admin' ? 'Admin' : 'User'}
+            </option>
+          ))}
+        </select>
+      )}
       <button
         onClick={() => act('approve')}
         disabled={busy !== null}
@@ -171,5 +197,35 @@ export function StatusToggleButton({ userId, email, status }: { userId: string; 
         {busy ? 'Saving…' : deactivating ? 'Deactivate' : 'Reactivate'}
       </button>
     </div>
+  );
+}
+
+export function EditUserButton(props: {
+  user: EditableUser;
+  canEditEmail: boolean;
+  canEditRole: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="text-blue-600 hover:text-blue-800 text-xs font-medium"
+      >
+        Edit
+      </button>
+      {open && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4"
+          onClick={(e) => e.target === e.currentTarget && setOpen(false)}
+        >
+          <div className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl">
+            <h2 className="mb-4 text-left font-semibold text-gray-900">Edit {props.user.name}</h2>
+            <EditUserForm {...props} onDone={() => setOpen(false)} />
+          </div>
+        </div>
+      )}
+    </>
   );
 }
