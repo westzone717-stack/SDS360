@@ -14,7 +14,7 @@ export async function POST(req: Request) {
   const session = await auth();
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
 
-  const { provider, action } = (await req.json()) as { provider: 'claude' | 'gpt' | 'ollama'; action: 'reset' };
+  const { provider, action } = (await req.json()) as { provider: 'groq' | 'claude' | 'gpt' | 'ollama'; action: 'reset' };
   if (action === 'reset') circuitBreaker.recordSuccess(provider);
 
   return NextResponse.json({ success: true });

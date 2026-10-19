@@ -5,7 +5,7 @@ export interface LlmHealthDoc extends Omit<LlmHealthStats, '_id'>, Document {}
 
 const LlmHealthSchema = new Schema(
   {
-    provider: { type: String, enum: ['claude', 'gpt', 'ollama'], required: true, unique: true },
+    provider: { type: String, enum: ['groq', 'claude', 'gpt', 'ollama'], required: true, unique: true },
     state: { type: String, enum: ['closed', 'open', 'half_open'], default: 'closed' },
     failureCount: { type: Number, default: 0 },
     successCount: { type: Number, default: 0 },

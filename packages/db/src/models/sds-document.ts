@@ -79,7 +79,7 @@ const SdsDocumentSchema = new Schema(
       enum: ['pending', 'ai_approved', 'human_approved'],
       default: 'pending',
     },
-    modelUsed: { type: String, enum: ['claude', 'gpt', 'ollama'] },
+    modelUsed: { type: String, enum: ['groq', 'claude', 'gpt', 'ollama'] },
     sections: sectionsDefinition,
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },

@@ -12,6 +12,7 @@ interface ProviderHealth {
 }
 
 interface HealthData {
+  groq: ProviderHealth;
   claude: ProviderHealth;
   gpt: ProviderHealth;
   ollama: ProviderHealth;
@@ -108,7 +109,7 @@ export default function AiMonitorPage() {
       {/* Provider health cards */}
       <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide mb-3">Circuit Breaker Status</h2>
       <div className="grid grid-cols-3 gap-4 mb-8">
-        {(['claude', 'gpt', 'ollama'] as const).map((provider) => {
+        {(['groq', 'claude', 'gpt', 'ollama'] as const).map((provider) => {
           const data = health?.[provider];
           const style = data ? STATE_STYLES[data.state] : STATE_STYLES.closed;
           return (

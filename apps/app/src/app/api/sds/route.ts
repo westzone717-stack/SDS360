@@ -2,6 +2,12 @@ import { NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel, AuditLogModel } from '@sds360/db';
 import { z } from 'zod';
+import { runSdsExtraction, JobError } from '@/lib/llm-jobs';
+
+// Extraction runs inside this request (no background worker), so allow the
+// longest duration Vercel permits; the LLM fallback chain gets most of it.
+export const maxDuration = 300;
+const LLM_BUDGET_MS = (maxDuration - 30) * 1000;
 
 // GET /api/sds — list SDS for the authenticated user's tenant
 export async function GET(req: Request) {
@@ -45,8 +51,9 @@ export async function GET(req: Request) {
   return NextResponse.json({ success: true, data: docs });
 }
 
-// POST /api/sds — trigger LLM extraction after S3 upload
+// POST /api/sds — run LLM extraction after S3 upload; responds when it is done
 export async function POST(req: Request) {
+  const started = Date.now();
   const session = await auth();
   if (!session?.user?.customerId) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
@@ -57,31 +64,12 @@ export async function POST(req: Request) {
 
   try {
     const { docId } = (await req.json()) as { docId: string };
-
-    // Enqueue BullMQ job for LLM extraction
-    const { Queue } = await import('bullmq');
-    const { bullmqConnectionOptions } = await import('@/lib/redis');
-    const queue = new Queue('sds-extraction', {
-      connection: bullmqConnectionOptions(),
-    });
-    try {
-      // attempts/backoff are job options (read by BullMQ from queue.add), not
-      // Worker options — they were previously (and uselessly) set on the Worker
-      // constructor in workers/src/index.ts, so failed extractions never
-      // actually retried despite looking configured to.
-      await queue.add('extract', { docId, customerId: session.user.customerId }, {
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-      });
-    } finally {
-      // Each request opens a fresh Redis connection for this Queue instance —
-      // without closing it, every upload leaks one open connection for the
-      // life of the container (found while investigating Upstash usage).
-      await queue.close();
-    }
-
-    return NextResponse.json({ success: true });
+    const result = await runSdsExtraction(docId, session.user.customerId, LLM_BUDGET_MS - (Date.now() - started));
+    return NextResponse.json({ success: true, data: result });
   } catch (err) {
+    if (err instanceof JobError) {
+      return NextResponse.json({ success: false, error: err.message }, { status: err.status });
+    }
     console.error('[POST /api/sds]', err);
     return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
   }

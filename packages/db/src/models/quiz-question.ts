@@ -16,7 +16,7 @@ const QuizQuestionSchema = new Schema(
     explanation: { type: String, required: true },
     difficulty: { type: String, enum: ['basic', 'advanced', 'expert'], required: true },
     relatedSection: { type: String, required: true },
-    modelUsed: { type: String, enum: ['claude', 'gpt', 'ollama'], required: true },
+    modelUsed: { type: String, enum: ['groq', 'claude', 'gpt', 'ollama'], required: true },
     status: {
       type: String,
       enum: ['ai_generated', 'under_review', 'force_review', 'approved', 'rejected'],

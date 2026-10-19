@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 
 type UploadStatus = 'idle' | 'uploading' | 'processing' | 'ready' | 'error';
@@ -12,19 +12,10 @@ interface FileEntry {
   docId?: string;
 }
 
-const POLL_INTERVAL = 3000;
-const POLL_TIMEOUT  = 5 * 60 * 1000; // 5 min max
-
 export default function UploadSdsPage() {
   const router = useRouter();
   const [entries, setEntries] = useState<FileEntry[]>([]);
   const [dragging, setDragging] = useState(false);
-  const pollTimers = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
-
-  // Clean up all timers on unmount
-  useEffect(() => {
-    return () => { pollTimers.current.forEach(clearInterval); };
-  }, []);
 
   function addFiles(files: FileList | File[]) {
     const newEntries = Array.from(files).map((f) => ({ file: f, status: 'idle' as UploadStatus }));
@@ -39,31 +30,6 @@ export default function UploadSdsPage() {
 
   function updateEntry(index: number, update: Partial<FileEntry>) {
     setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...update } : e)));
-  }
-
-  function startPolling(docId: string, index: number) {
-    const started = Date.now();
-    const timer = setInterval(async () => {
-      if (Date.now() - started > POLL_TIMEOUT) {
-        clearInterval(timer);
-        pollTimers.current.delete(docId);
-        updateEntry(index, { status: 'error', error: 'Extraction timed out' });
-        return;
-      }
-      try {
-        const res = await fetch(`/api/sds/${docId}`);
-        const data = (await res.json()) as { success: boolean; data?: { modelUsed?: string } };
-        // modelUsed is set only after worker completes extraction (initially empty)
-        if (data.success && data.data?.modelUsed) {
-          clearInterval(timer);
-          pollTimers.current.delete(docId);
-          updateEntry(index, { status: 'ready' });
-        }
-      } catch {
-        // Network hiccup — keep polling
-      }
-    }, POLL_INTERVAL);
-    pollTimers.current.set(docId, timer);
   }
 
   async function computeHash(file: File): Promise<string> {
@@ -99,19 +65,20 @@ export default function UploadSdsPage() {
         throw new Error(`Upload failed: ${uploadRes.status}`);
       }
 
-      // 4. Trigger LLM extraction
-      await fetch('/api/sds', {
+      // 4. Run LLM extraction — the request returns once it has finished
+      updateEntry(index, { status: 'processing', docId });
+      const extractRes = await fetch('/api/sds', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ docId }),
       });
-
-      updateEntry(index, { status: 'processing', docId });
-
-      // 5. Poll until extraction completes
-      startPolling(docId, index);
+      const extractJson = (await extractRes.json().catch(() => null)) as { success: boolean; error?: string } | null;
+      if (!extractJson?.success) {
+        throw new Error(extractJson?.error ?? `Extraction failed (${extractRes.status})`);
+      }
+      updateEntry(index, { status: 'ready' });
     } catch (err) {
-      updateEntry(index, { status: 'error', error: String(err) });
+      updateEntry(index, { status: 'error', error: err instanceof Error ? err.message : String(err) });
     }
   }
 

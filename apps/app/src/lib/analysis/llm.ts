@@ -8,6 +8,11 @@ import { analysisDebugLog } from './debug-log';
 const IS_DEV_LLM = process.env.ANTHROPIC_API_KEY === 'sk-ant-placeholder';
 
 // Lazy — read env vars at call time, not module-load time.
+// Groq is OpenAI-compatible; .chat() forces Chat Completions (Groq's stable API).
+function groqModel() {
+  return createOpenAI({ apiKey: process.env.GROQ_API_KEY, baseURL: 'https://api.groq.com/openai/v1' })
+    .chat(process.env.GROQ_MODEL ?? 'openai/gpt-oss-120b');
+}
 function anthropicModel() {
   return createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY })('claude-sonnet-4-6');
 }
@@ -121,7 +126,7 @@ function mockReport(userRequest: string, stepResults: AnalysisStepResult[]): str
 }
 
 /**
- * Generates the structured plan. Tries Claude, then GPT, then (dev-only) a
+ * Generates the structured plan. Tries Groq, then Claude, then GPT, then (dev-only) a
  * deterministic mock — mirroring packages/llm's routeWithFallback so one
  * provider being down never blocks the whole request.
  */
@@ -134,6 +139,15 @@ export async function generateAnalysisPlan(
   const prompt = planPrompt(userRequest, toolManifest, knownProductNames, options?.forceNoClarification ?? false);
 
   analysisDebugLog(`[analysis] Full plan-generation prompt sent to the LLM:\n${prompt}`);
+
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const { object } = await generateObject({ model: groqModel(), schema: planSchema, prompt });
+      return normalizePlan(object);
+    } catch (err) {
+      console.error('[analysis] Groq plan generation failed:', err);
+    }
+  }
 
   try {
     const { object } = await generateObject({ model: anthropicModel(), schema: planSchema, prompt });
@@ -168,6 +182,15 @@ export async function generateAnalysisReport(
   const prompt = reportPrompt(userRequest, stepResults);
 
   analysisDebugLog(`[analysis] Full report-generation prompt sent to the LLM:\n${prompt}`);
+
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const { text } = await generateText({ model: groqModel(), prompt });
+      return text;
+    } catch (err) {
+      console.error('[analysis] Groq report generation failed:', err);
+    }
+  }
 
   try {
     const { text } = await generateText({ model: anthropicModel(), prompt });

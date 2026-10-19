@@ -26,7 +26,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ success: false, error: 'Forbidden' }, { status: 403 });
   }
 
-  const { provider, action } = (await req.json()) as { provider: 'claude' | 'gpt' | 'ollama'; action: 'reset' };
+  const { provider, action } = (await req.json()) as { provider: 'groq' | 'claude' | 'gpt' | 'ollama'; action: 'reset' };
   if (action === 'reset') {
     circuitBreaker.recordSuccess(provider);
   }

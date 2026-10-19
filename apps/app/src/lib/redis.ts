@@ -5,27 +5,6 @@ declare global {
   var _redis: Redis | undefined;
 }
 
-// BullMQ's `Queue`/`Worker` constructors take a connection *options object*,
-// not a raw URL string — unlike passing a URL straight to `new Redis(...)`
-// (which ioredis parses natively, TLS scheme included), so callers have to
-// build this themselves. Managed Redis (e.g. ElastiCache Serverless) requires
-// TLS and is reached via a `rediss://` URL; dropping that during host/port
-// extraction silently produces a plaintext connection attempt that just
-// hangs/fails against a TLS-only endpoint.
-export function bullmqConnectionOptions(redisUrl?: string) {
-  const url = new URL(redisUrl ?? process.env.REDIS_URL ?? 'redis://localhost:6379');
-  return {
-    host: url.hostname,
-    port: Number(url.port) || 6379,
-    // Managed Redis with an AUTH password (e.g. Upstash's `rediss://default:PASS@host`)
-    // needs these explicitly — unlike `new Redis(url)` which ioredis parses natively,
-    // this options object doesn't get the userinfo portion of the URL for free.
-    ...(url.username ? { username: url.username } : {}),
-    ...(url.password ? { password: url.password } : {}),
-    ...(url.protocol === 'rediss:' ? { tls: {} } : {}),
-  };
-}
-
 export function getRedis(): Redis {
   if (!global._redis) {
     global._redis = new Redis(process.env.REDIS_URL ?? 'redis://localhost:6379', {

@@ -76,9 +76,7 @@ export default function QuizBankPage() {
   // Tracks IDs of questions created in the current session (for "New" badge)
   const [newQuestionIds, setNewQuestionIds] = useState<Set<string>>(new Set());
 
-  // Polling: one interval per SDS doc (keyed by sdsId)
-  const pollingRefs = useRef<Map<string, ReturnType<typeof setInterval>>>(new Map());
-  // Ref mirror of expandedSdsId so poll callbacks can read current value
+  // Ref mirror of expandedSdsId so a finished generation can read the current value
   const expandedSdsIdRef = useRef<string | null>(null);
 
   const loadSummaries = useCallback(async () => {
@@ -91,14 +89,8 @@ export default function QuizBankPage() {
 
   useEffect(() => { loadSummaries(); }, [loadSummaries]);
 
-  // Keep expandedSdsIdRef in sync so polling closures always see the current value
+  // Keep expandedSdsIdRef in sync so async callbacks always see the current value
   useEffect(() => { expandedSdsIdRef.current = expandedSdsId; }, [expandedSdsId]);
-
-  // Cleanup all polling intervals on unmount
-  useEffect(() => {
-    const refs = pollingRefs.current;
-    return () => { refs.forEach(clearInterval); };
-  }, []);
 
   const loadQuestionsForSds = useCallback(async (sdsDocumentId: string): Promise<QuizQuestion[]> => {
     setQuestionsLoading(true);
@@ -148,16 +140,11 @@ export default function QuizBankPage() {
     loadSummaries();
   }
 
-  // Silent fetch — no loading spinner; used for polling
+  // Silent fetch — no loading spinner; used after generation finishes
   async function silentFetchQuestions(sdsDocumentId: string): Promise<QuizQuestion[]> {
     const res = await fetch(`/api/quiz-questions?sdsDocumentId=${sdsDocumentId}`);
     const data = (await res.json()) as { success: boolean; data?: QuizQuestion[] };
     return data.success && data.data ? data.data : [];
-  }
-
-  function stopPolling(sdsId: string) {
-    const iv = pollingRefs.current.get(sdsId);
-    if (iv !== undefined) { clearInterval(iv); pollingRefs.current.delete(sdsId); }
   }
 
   function setGenCount(sdsId: string, count: number) {
@@ -172,86 +159,60 @@ export default function QuizBankPage() {
     // Snapshot the IDs that exist right now — anything new after this is "just generated"
     const prevIds = new Set(expandedQuestions.map((q) => q._id));
 
-    stopPolling(sdsId); // cancel any previous poll for this doc
-
     setGenStates((prev) => ({
       ...prev,
       [sdsId]: { count, generating: true, result: null },
     }));
 
+    // Generation runs inside the request — it returns once the questions are saved
     const res = await fetch('/api/quiz-questions/generate', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ sdsDocumentId: sdsId, count }),
     });
-    const data = (await res.json()) as { success: boolean; error?: string };
+    const data = (await res.json().catch(() => null)) as { success: boolean; error?: string } | null;
+
+    if (!data?.success) {
+      setGenStates((prev) => ({
+        ...prev,
+        [sdsId]: { count, generating: false, result: { ok: false, msg: data?.error ?? `Generation failed (${res.status}).` } },
+      }));
+      return;
+    }
+
+    const qs = await silentFetchQuestions(sdsId);
+    const newIds = new Set(qs.filter((q) => !prevIds.has(q._id)).map((q) => q._id));
+
+    // Update the open question list only if this SDS is still expanded
+    if (expandedSdsIdRef.current === sdsId) {
+      setExpandedQuestions(qs);
+      setNewQuestionIds(newIds);
+    }
+
+    // Update the summary row for this SDS without reloading everything
+    setSummaries((prev) =>
+      prev.map((s) => {
+        if (s._id !== sdsId) return s;
+        return {
+          ...s,
+          total: qs.length,
+          approved:     qs.filter((q) => q.status === 'approved').length,
+          ai_generated: qs.filter((q) => q.status === 'ai_generated').length,
+          under_review: qs.filter((q) => q.status === 'under_review').length,
+          force_review: qs.filter((q) => q.status === 'force_review').length,
+          rejected:     qs.filter((q) => q.status === 'rejected').length,
+        };
+      }),
+    );
 
     setGenStates((prev) => ({
       ...prev,
       [sdsId]: {
         count,
         generating: false,
-        result: {
-          ok: data.success,
-          msg: data.success
-            ? 'Queued — polling for new questions…'
-            : (data.error ?? 'Failed to queue generation.'),
-        },
+        result: { ok: true, msg: `${newIds.size} new question${newIds.size === 1 ? '' : 's'} generated.` },
       },
     }));
-
-    if (!data.success) return;
-
-    // Poll every 3 s until new questions appear or we time out (90 s)
-    const deadline = Date.now() + 90_000;
-    const iv = setInterval(async () => {
-      if (Date.now() > deadline) {
-        stopPolling(sdsId);
-        setGenStates((prev) => ({
-          ...prev,
-          [sdsId]: { ...prev[sdsId], result: { ok: false, msg: 'Timed out — refresh manually.' } },
-        }));
-        return;
-      }
-
-      const qs = await silentFetchQuestions(sdsId);
-      const newIds = new Set(qs.filter((q) => !prevIds.has(q._id)).map((q) => q._id));
-      if (newIds.size === 0) return; // nothing new yet, keep polling
-
-      stopPolling(sdsId);
-
-      // Update the open question list only if this SDS is still expanded
-      if (expandedSdsIdRef.current === sdsId) {
-        setExpandedQuestions(qs);
-        setNewQuestionIds(newIds);
-      }
-
-      // Update the summary row for this SDS without reloading everything
-      setSummaries((prev) =>
-        prev.map((s) => {
-          if (s._id !== sdsId) return s;
-          return {
-            ...s,
-            total: qs.length,
-            approved:     qs.filter((q) => q.status === 'approved').length,
-            ai_generated: qs.filter((q) => q.status === 'ai_generated').length,
-            under_review: qs.filter((q) => q.status === 'under_review').length,
-            force_review: qs.filter((q) => q.status === 'force_review').length,
-            rejected:     qs.filter((q) => q.status === 'rejected').length,
-          };
-        }),
-      );
-
-      setGenStates((prev) => ({
-        ...prev,
-        [sdsId]: {
-          ...prev[sdsId],
-          result: { ok: true, msg: `${newIds.size} new question${newIds.size > 1 ? 's' : ''} generated.` },
-        },
-      }));
-    }, 3000);
-
-    pollingRefs.current.set(sdsId, iv);
   }
 
   const filtered = summaries.filter(
@@ -461,7 +422,7 @@ export default function QuizBankPage() {
                               disabled={gs?.generating}
                               className="text-sm bg-blue-700 text-white px-4 py-1.5 rounded-lg hover:bg-blue-800 disabled:opacity-50 font-medium"
                             >
-                              {gs?.generating ? 'Queuing…' : 'Generate'}
+                              {gs?.generating ? 'Generating…' : 'Generate'}
                             </button>
                             <span className="text-xs text-gray-400">{remaining} slots remaining</span>
                             {gs?.result && (

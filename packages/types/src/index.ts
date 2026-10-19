@@ -47,7 +47,7 @@ export interface TrainingStatus {
 export type ReviewStatus = 'pending' | 'ai_approved' | 'human_approved';
 export type SdsStatus = 'active' | 'deactivated' | 'deleted';
 export type HazardLevel = 'extreme' | 'high' | 'medium' | 'low';
-export type LlmProvider = 'claude' | 'gpt' | 'ollama';
+export type LlmProvider = 'groq' | 'claude' | 'gpt' | 'ollama';
 
 // Re-exported from sds-schema.ts — the canonical field definition (top-level
 // metadata + 6 sections, mostly select/multi-select) plus the stored-value shapes.

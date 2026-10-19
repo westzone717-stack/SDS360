@@ -134,11 +134,6 @@ pnpm --filter @sds360/admin dev >"$LOG_DIR/admin.log" 2>&1 &
 PIDS+=($!)
 log "  admin   PID=$! → log: .logs/admin.log"
 
-# BullMQ workers
-pnpm --filter @sds360/workers dev >"$LOG_DIR/workers.log" 2>&1 &
-PIDS+=($!)
-log "  workers PID=$! → log: .logs/workers.log"
-
 # ── Step 7: Wait & health check ────────────────────────────────────────────────
 step "Waiting for services to be ready (up to 30s)..."
 
@@ -152,11 +147,10 @@ wait_ready() {
   return 1
 }
 
-APP_OK=0; ADMIN_OK=0; WORKERS_OK=0
+APP_OK=0; ADMIN_OK=0
 
 wait_ready "$LOG_DIR/app.log"     "Ready in"        "app (http://localhost:3000)" && APP_OK=1     || true
 wait_ready "$LOG_DIR/admin.log"   "Ready in"        "admin (http://localhost:3001)" && ADMIN_OK=1 || true
-wait_ready "$LOG_DIR/workers.log" "workers started" "workers (BullMQ)" && WORKERS_OK=1            || true
 
 # ── Status board ───────────────────────────────────────────────────────────────
 echo ""
@@ -176,15 +170,9 @@ else
   echo -e "${BOLD}│${NC}  ${RED}✗${NC}  admin    FAILED  →  check .logs/admin.log             ${BOLD}│${NC}"
 fi
 
-if [ "$WORKERS_OK" -eq 1 ]; then
-  echo -e "${BOLD}│${NC}  ${GREEN}✓${NC}  workers  BullMQ connected                              ${BOLD}│${NC}"
-else
-  echo -e "${BOLD}│${NC}  ${RED}✗${NC}  workers  FAILED  →  check .logs/workers.log            ${BOLD}│${NC}"
-fi
-
 echo -e "${BOLD}├──────────────────────────────────────────────────────────┤${NC}"
 echo -e "${BOLD}│${NC}  ${YELLOW}Ctrl+C${NC} to stop all services                              ${BOLD}│${NC}"
-echo -e "${BOLD}│${NC}  Logs: .logs/{app,admin,workers}.log                      ${BOLD}│${NC}"
+echo -e "${BOLD}│${NC}  Logs: .logs/{app,admin}.log                              ${BOLD}│${NC}"
 echo -e "${BOLD}└──────────────────────────────────────────────────────────┘${NC}"
 echo ""
 
@@ -200,7 +188,6 @@ tail_labeled() {
 
 tail_labeled "app    " "$LOG_DIR/app.log"     "$CYAN"
 tail_labeled "admin  " "$LOG_DIR/admin.log"   "$BLUE"
-tail_labeled "workers" "$LOG_DIR/workers.log" "$GREEN"
 
 # Keep the script alive; trap handles cleanup on Ctrl+C
 wait "${PIDS[0]}" 2>/dev/null || true

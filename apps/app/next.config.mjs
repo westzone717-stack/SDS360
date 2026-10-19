@@ -3,7 +3,7 @@ const nextConfig = {
   output: 'standalone',
   transpilePackages: ['@sds360/types'],
   experimental: {
-    serverComponentsExternalPackages: ['mongoose', 'ioredis', 'bullmq', '@aws-sdk/client-s3', '@aws-sdk/s3-request-presigner', '@aws-sdk/s3-presigned-post'],
+    serverComponentsExternalPackages: ['mongoose', 'ioredis', 'pdf-parse', '@aws-sdk/client-s3', '@aws-sdk/s3-request-presigner', '@aws-sdk/s3-presigned-post'],
     // Next's Server Actions origin check compares the browser's `Origin`
     // header against `x-forwarded-host`. Behind CloudFront -> ALB, those are
     // two different domains (the CDN edge vs. the load balancer), so it

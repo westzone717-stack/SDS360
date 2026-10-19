@@ -52,7 +52,7 @@ export const circuitBreaker = {
   },
 
   getAllStates(): Record<LlmProvider, BreakerState> {
-    const providers: LlmProvider[] = ['claude', 'gpt', 'ollama'];
+    const providers: LlmProvider[] = ['groq', 'claude', 'gpt', 'ollama'];
     return providers.reduce(
       (acc, p) => ({ ...acc, [p]: { ...getBreaker(p) } }),
       {} as Record<LlmProvider, BreakerState>
