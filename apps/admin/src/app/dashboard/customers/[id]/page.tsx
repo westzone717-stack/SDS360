@@ -3,6 +3,7 @@ import type { CustomerDoc, UserDoc } from '@sds360/db';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ResetPasswordButton from './ResetPasswordButton';
+import EditCustomerForm from './EditCustomerForm';
 
 async function getData(id: string) {
   await connectDb();
@@ -34,27 +35,26 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
             <Row label="Status" value={customer.status} />
             <Row label="Domain" value={customer.domain ?? '—'} />
             <Row label="Max Users" value={String(customer.maxUsers)} />
+            <Row label="Max SDS Documents" value={String(customer.maxSdsDocuments)} />
             <Row label="Contract Expires" value={new Date(customer.contractExpiresAt).toLocaleDateString()} />
             <Row label="Created" value={new Date(customer.createdAt).toLocaleDateString()} />
           </dl>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <h2 className="font-semibold text-gray-700 mb-3 text-sm">Quick Actions</h2>
-          <div className="space-y-2">
-            <form action={`/api/customers/${params.id}`} method="PATCH">
-              <button
-                type="button"
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm border ${
-                  customer.status === 'active'
-                    ? 'border-red-300 text-red-600 hover:bg-red-50'
-                    : 'border-green-300 text-green-600 hover:bg-green-50'
-                }`}
-              >
-                {customer.status === 'active' ? 'Suspend Customer' : 'Activate Customer'}
-              </button>
-            </form>
-          </div>
+          <h2 className="font-semibold text-gray-700 mb-3 text-sm">Edit Customer</h2>
+          <EditCustomerForm
+            customer={{
+              id: params.id,
+              name: customer.name,
+              domain: customer.domain ?? '',
+              plan: customer.plan,
+              status: customer.status,
+              maxUsers: customer.maxUsers,
+              maxSdsDocuments: customer.maxSdsDocuments,
+              contractExpiresAt: new Date(customer.contractExpiresAt).toISOString().slice(0, 10),
+            }}
+          />
         </div>
       </div>
 
