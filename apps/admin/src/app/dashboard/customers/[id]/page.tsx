@@ -4,6 +4,7 @@ import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import ResetPasswordButton from './ResetPasswordButton';
 import EditCustomerForm from './EditCustomerForm';
+import CustomerStatusButton from './CustomerStatusButton';
 
 async function getData(id: string) {
   await connectDb();
@@ -24,7 +25,19 @@ export default async function CustomerDetailPage({ params }: { params: { id: str
         <Link href="/dashboard/customers" className="text-sm text-gray-400 hover:text-gray-600 mb-2 block">
           ← Customers
         </Link>
-        <h1 className="text-2xl font-bold text-gray-900">{customer.name}</h1>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900">{customer.name}</h1>
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs font-medium capitalize ${
+                customer.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+              }`}
+            >
+              {customer.status === 'active' ? 'active' : `inactive (${customer.status})`}
+            </span>
+          </div>
+          <CustomerStatusButton id={params.id} name={customer.name} status={customer.status} />
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-6 mb-8">

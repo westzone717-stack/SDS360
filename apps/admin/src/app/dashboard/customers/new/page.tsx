@@ -12,7 +12,6 @@ interface FormData {
   maxUsers: number;
   accessManagerEmail: string;
   accessManagerName: string;
-  adminEmails: string[];
 }
 
 const STEPS = ['Company Info', 'Plan', 'Initial Accounts', 'Confirm'];
@@ -31,7 +30,6 @@ export default function NewCustomerPage() {
     maxUsers: 50,
     accessManagerEmail: '',
     accessManagerName: '',
-    adminEmails: [''],
   });
 
   function update<K extends keyof FormData>(key: K, value: FormData[K]) {
@@ -143,7 +141,7 @@ export default function NewCustomerPage() {
         {step === 2 && (
           <div className="space-y-4">
             <p className="text-sm text-gray-600 mb-4">
-              Access Manager is required. Up to 3 Admin accounts are optional.
+              Every customer starts with one Access Manager. Admins and Users request access in the customer portal, and the Access Manager approves them and chooses their role.
             </p>
             <Field label="Access Manager Name *">
               <input className={inputCls} value={form.accessManagerName} onChange={(e) => update('accessManagerName', e.target.value)} />
@@ -151,27 +149,6 @@ export default function NewCustomerPage() {
             <Field label="Access Manager Email *">
               <input type="email" className={inputCls} value={form.accessManagerEmail} onChange={(e) => update('accessManagerEmail', e.target.value)} />
             </Field>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Admin Emails (optional)</label>
-              {form.adminEmails.map((email, idx) => (
-                <div key={idx} className="flex gap-2 mb-2">
-                  <input
-                    type="email"
-                    className={inputCls}
-                    value={email}
-                    placeholder={`admin${idx + 1}@company.com`}
-                    onChange={(e) => {
-                      const emails = [...form.adminEmails];
-                      emails[idx] = e.target.value;
-                      update('adminEmails', emails);
-                    }}
-                  />
-                  {form.adminEmails.length < 3 && idx === form.adminEmails.length - 1 && (
-                    <button onClick={() => update('adminEmails', [...form.adminEmails, ''])} className="text-blue-600 text-sm whitespace-nowrap">+ Add</button>
-                  )}
-                </div>
-              ))}
-            </div>
           </div>
         )}
 
@@ -183,7 +160,6 @@ export default function NewCustomerPage() {
             <Row label="Contract" value={`${form.contractMonths} months`} />
             <Row label="Max Users" value={String(form.maxUsers)} />
             <Row label="Access Manager" value={`${form.accessManagerName} <${form.accessManagerEmail}>`} />
-            <Row label="Admins" value={form.adminEmails.filter(Boolean).join(', ') || '—'} />
             <p className="text-gray-500 text-xs mt-4">
               A 12-character temporary password is generated for each account and shown on the next screen (only once) for you to hand over. All recipients must change their password on first login.
             </p>

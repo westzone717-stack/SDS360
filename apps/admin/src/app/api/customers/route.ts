@@ -27,10 +27,11 @@ const createSchema = z
     accessManagerEmail: email,
     accessManagerName: z.string().min(1),
     // The form always sends at least one (possibly blank) admin field — drop blanks before validating
+    // No longer collected by the form (admins are approved in the customer portal); still accepted
     adminEmails: z.preprocess(
       (v) => (Array.isArray(v) ? v.map((e) => String(e).trim()).filter(Boolean) : v),
       z.array(email).max(3)
-    ),
+    ).default([]),
   })
   .superRefine((data, ctx) => {
     if (!data.domain) return;
