@@ -11,10 +11,21 @@ const sectionSchema = z.object({
   fieldStatus: z.enum(['pending', 'ai_approved', 'human_approved']),
 });
 
+const metadataSchema = z.object({
+  productName: z.string().trim().min(1, 'Product name is required'),
+  supplier: z.string(),
+  entityBusinessName: z.string(),
+  quantity: z.string(),
+  reviewDate: z.string(),
+  reviewBy: z.string(),
+});
+
 const reviewSchema = z.object({
   // sections.<sectionKey> = sectionSchema
   sections: z.record(sectionSchema),
   approved: z.boolean(),
+  // Document details edited on the review page
+  metadata: metadataSchema.optional(),
 });
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
@@ -28,7 +39,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
 
   try {
     const body = await req.json() as unknown;
-    const { sections, approved } = reviewSchema.parse(body);
+    const { sections, approved, metadata } = reviewSchema.parse(body);
 
     await connectDb();
 
@@ -36,6 +47,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
       reviewedBy: session.user.id,
       reviewStatus: approved ? 'human_approved' : 'pending',
       isActive: approved,
+      ...(metadata ?? {}),
     };
 
     let sectionCount = 0;

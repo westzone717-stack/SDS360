@@ -3,14 +3,19 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { SDS_SCHEMA, EMPTY_INGREDIENT } from '../sds-sections';
-import type { SdsSectionsMap, SdsSectionData, SdsIngredient } from '../sds-sections';
+import { SDS_SCHEMA } from '../sds-sections';
+import type { SdsSectionsMap, SdsSectionData, SdsMetadata } from '../sds-sections';
+import { IngredientsFields, LabelColorTable, ChecklistTable, MetadataFields } from '../section-widgets';
 import { PdfViewer } from './PdfViewer';
 
 interface SdsDoc {
   _id: string;
   productName: string;
   supplier?: string;
+  entityBusinessName?: string;
+  quantity?: string;
+  reviewDate?: string;
+  reviewBy?: string;
   hazardLevel: string;
   reviewStatus: string;
   modelUsed: string;
@@ -38,6 +43,7 @@ export default function SdsReviewPage() {
   const router = useRouter();
   const [doc, setDoc] = useState<SdsDoc | null>(null);
   const [sections, setSections] = useState<SdsSectionsMap>({});
+  const [metadata, setMetadata] = useState<SdsMetadata | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -50,6 +56,14 @@ export default function SdsReviewPage() {
         if (d.success && d.data) {
           setDoc(d.data);
           setSections(d.data.sections ?? {});
+          setMetadata({
+            productName: d.data.productName ?? '',
+            supplier: d.data.supplier ?? '',
+            entityBusinessName: d.data.entityBusinessName ?? '',
+            quantity: d.data.quantity ?? '',
+            reviewDate: d.data.reviewDate ?? '',
+            reviewBy: d.data.reviewBy ?? '',
+          });
         } else {
           setError('Failed to load SDS document.');
         }
@@ -92,7 +106,7 @@ export default function SdsReviewPage() {
       const res = await fetch(`/api/sds/${params.id}/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sections, approved }),
+        body: JSON.stringify({ sections, approved, metadata }),
       });
       const data = (await res.json()) as { success: boolean; error?: string };
       if (data.success) {
@@ -174,8 +188,14 @@ export default function SdsReviewPage() {
           </button>
         </div>
 
-        {/* Section list */}
+        {/* Document details + section list */}
         <div className="flex-1 overflow-y-auto space-y-2">
+          {metadata && (
+            <div className="bg-white rounded-xl border border-gray-200 px-4 py-3">
+              <p className="text-sm text-gray-800 font-semibold mb-2">Document Details</p>
+              <MetadataFields metadata={metadata} onChange={setMetadata} />
+            </div>
+          )}
           {SDS_SCHEMA.map((section) => {
             const data = getSection(section.key);
             const isExpanded = expanded.has(section.key);
@@ -262,6 +282,13 @@ function SectionEditor({
   data: SdsSectionData;
   onChange: (patch: Partial<SdsSectionData>) => void;
 }) {
+  if (section.key === 'labelColor') {
+    return <LabelColorTable options={section.options!} value={data.value} onChange={(value) => onChange({ value })} />;
+  }
+  if (section.key === 'ppeRecommendations') {
+    return <ChecklistTable options={section.options!} values={data.values ?? []} onChange={(values) => onChange({ values })} />;
+  }
+
   if (section.type === 'single_select') {
     return (
       <div className="flex flex-wrap gap-2">
@@ -309,39 +336,5 @@ function SectionEditor({
   }
 
   // ingredients
-  const items = data.items ?? [];
-  function updateItem(i: number, key: keyof SdsIngredient, value: string) {
-    const next = items.slice();
-    next[i] = { ...next[i], [key]: value };
-    onChange({ items: next });
-  }
-  return (
-    <div className="space-y-2">
-      {items.map((item, i) => (
-        <div key={i} className="border border-gray-200 rounded-lg p-2 grid grid-cols-3 gap-1.5">
-          {(Object.keys(EMPTY_INGREDIENT) as Array<keyof SdsIngredient>).map((key) => (
-            <input
-              key={key}
-              value={item[key]}
-              onChange={(e) => updateItem(i, key, e.target.value)}
-              placeholder={key}
-              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          ))}
-          <button
-            onClick={() => onChange({ items: items.filter((_, idx) => idx !== i) })}
-            className="col-span-3 text-xs text-red-600 hover:text-red-800 text-right"
-          >
-            Remove
-          </button>
-        </div>
-      ))}
-      <button
-        onClick={() => onChange({ items: [...items, { ...EMPTY_INGREDIENT }] })}
-        className="text-xs text-blue-700 border border-blue-300 rounded-lg px-3 py-1.5 hover:bg-blue-50"
-      >
-        + Add Ingredient
-      </button>
-    </div>
-  );
+  return <IngredientsFields items={data.items ?? []} onChange={(items) => onChange({ items })} />;
 }

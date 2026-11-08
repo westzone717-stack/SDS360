@@ -2,8 +2,25 @@ import type { SdsExtractionResult, QuizGenerationResult } from './types';
 import { SDS_SCHEMA, SDS_METADATA_FIELDS, SDS_INGREDIENT_FIELDS, EMPTY_INGREDIENT } from '@sds360/types';
 import type { SdsSectionsMap, SdsSectionData, SdsMetadata, SdsIngredient } from '@sds360/types';
 
+// Where each metadata field is usually found in a supplier SDS. Uploads are
+// mostly raw supplier SDSs, not our summary form, so the model needs to know
+// which SDS wording maps to which field.
+const METADATA_HINTS: Record<string, string> = {
+  productName: 'the product identifier / trade name (Section 1)',
+  supplier: 'the manufacturer or supplier company name (Section 1)',
+  entityBusinessName: 'the business/organization the SDS was prepared for, only if stated; otherwise ""',
+  quantity:
+    'the quantity / container size / net contents, only if the document states one (e.g. "4 L", "20 kg", "500 mL bottle"); otherwise ""',
+  reviewDate:
+    'the SDS revision / review date — look for "Revision date", "Date of revision", "Last revised", "Review date", "Issue date" or "Date prepared" (usually Section 16 or the header/footer). Prefer the most recent revision date. Format as YYYY-MM-DD when the date is unambiguous; otherwise copy it as written',
+  reviewBy:
+    'who prepared / revised / reviewed the SDS — look for "Prepared by", "Revised by", "Reviewed by" or the issuing department (usually Section 16); otherwise ""',
+};
+
 export function buildSdsPrompt(documentText: string): string {
-  const metaList = SDS_METADATA_FIELDS.map((f) => `  - ${f.key} ("${f.label}")`).join('\n');
+  const metaList = SDS_METADATA_FIELDS.map(
+    (f) => `  - ${f.key} ("${f.label}")${METADATA_HINTS[f.key] ? ` — ${METADATA_HINTS[f.key]}` : ''}`
+  ).join('\n');
 
   const sectionBlocks = SDS_SCHEMA.map((section) => {
     if (section.type === 'ingredients') {
@@ -27,7 +44,7 @@ export function buildSdsPrompt(documentText: string): string {
 
   const metaShape = SDS_METADATA_FIELDS.map((f) => `"${f.key}":"..."`).join(', ');
 
-  return `You are a hazardous materials safety expert. Extract the following from the SDS review-summary document text below.
+  return `You are a hazardous materials safety expert. Extract the following from the Safety Data Sheet (SDS) text below. It may be a supplier SDS or an internal SDS review-summary form.
 
 Document metadata (plain text fields):
 ${metaList}
@@ -36,6 +53,8 @@ Sections (checklist-style — the document marks selections with a checkmark/hig
 ${sectionBlocks}
 
 For the "hazardousIngredients" list, extract every distinct component listed under "Hazardous Ingredients" as one entry — do not skip or merge any, and do not invent ones not present.
+
+Metadata fields are plain strings. Use "" for any metadata field the document does not state — never guess or invent a value.
 
 For every other section, "confidence" is a float 0.0–1.0 (0.0 if nothing was selected/found, 0.85+ if clearly marked, lower if ambiguous). Use ONLY the option values given above — never invent new option values.
 

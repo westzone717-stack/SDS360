@@ -1,3 +1,4 @@
+import { DocumentDetails } from './DocumentDetails';
 import { auth } from '@/lib/auth';
 import { connectDb, SdsDocumentModel } from '@sds360/db';
 import mongoose from 'mongoose';
@@ -97,7 +98,9 @@ export default async function SdsDetailPage({ params }: { params: { id: string }
         Hazard Level: <span className="capitalize">{doc.hazardLevel}</span>
       </div>
 
-      {/* 16 sections → subsections → fields — editable for admins */}
+      <DocumentDetails docId={String(doc._id)} metadata={metadata} isAdmin={isAdmin} />
+
+      {/* Review-form sections — editable for admins */}
       <SdsSectionsEditor
         docId={String(doc._id)}
         initialSections={sectionsMap}

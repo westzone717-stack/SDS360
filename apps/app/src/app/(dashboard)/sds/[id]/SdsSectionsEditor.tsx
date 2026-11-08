@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { SDS_SCHEMA } from './sds-sections';
 import type { SdsSectionsMap, SdsSectionData, SdsIngredient } from './sds-sections';
-import { EMPTY_INGREDIENT } from '@sds360/types';
+import { IngredientsFields, LabelColorTable, ChecklistTable } from './section-widgets';
 
 interface Props {
   docId: string;
@@ -142,7 +142,13 @@ export function SdsSectionsEditor({ docId, initialSections, isAdmin }: Props) {
               <div className="px-4 pb-4 pt-1 border-t border-gray-50">
                 {isEditing ? (
                   <div className="space-y-3">
-                    {section.type === 'single_select' && (
+                    {section.key === 'labelColor' && (
+                      <LabelColorTable options={section.options!} value={editValue} onChange={setEditValue} />
+                    )}
+                    {section.key === 'ppeRecommendations' && (
+                      <ChecklistTable options={section.options!} values={editValues} onChange={setEditValues} />
+                    )}
+                    {section.type === 'single_select' && section.key !== 'labelColor' && (
                       <div className="flex flex-wrap gap-2">
                         {section.options!.map((o) => (
                           <label key={o.value} className={`text-xs px-3 py-1.5 rounded-lg border cursor-pointer ${editValue === o.value ? 'bg-blue-50 border-blue-400 text-blue-700' : 'border-gray-300 text-gray-600'}`}>
@@ -152,7 +158,7 @@ export function SdsSectionsEditor({ docId, initialSections, isAdmin }: Props) {
                         ))}
                       </div>
                     )}
-                    {section.type === 'multi_select' && (
+                    {section.type === 'multi_select' && section.key !== 'ppeRecommendations' && (
                       <div className="flex flex-wrap gap-2">
                         {section.options!.map((o) => {
                           const checked = editValues.includes(o.value);
@@ -171,7 +177,7 @@ export function SdsSectionsEditor({ docId, initialSections, isAdmin }: Props) {
                       </div>
                     )}
                     {section.type === 'ingredients' && (
-                      <IngredientsEditor items={editItems} onChange={setEditItems} />
+                      <IngredientsFields items={editItems} onChange={setEditItems} />
                     )}
                     {saveError && <p className="text-xs text-red-600">{saveError}</p>}
                     <div className="flex gap-2 justify-end">
@@ -206,6 +212,20 @@ export function SdsSectionsEditor({ docId, initialSections, isAdmin }: Props) {
 }
 
 function SectionReadout({ section, data }: { section: (typeof SDS_SCHEMA)[number]; data: SdsSectionData }) {
+  if (section.key === 'labelColor') {
+    return (
+      <div className="flex-1">
+        <LabelColorTable options={section.options!} value={data.value} />
+      </div>
+    );
+  }
+  if (section.key === 'ppeRecommendations') {
+    return (
+      <div className="flex-1">
+        <ChecklistTable options={section.options!} values={data.values ?? []} />
+      </div>
+    );
+  }
   if (section.type === 'ingredients') {
     if (!data.items || data.items.length === 0) {
       return <p className="text-sm text-gray-300 italic">No ingredients extracted</p>;
@@ -254,42 +274,4 @@ function SectionReadout({ section, data }: { section: (typeof SDS_SCHEMA)[number
 
   const opt = section.options!.find((o) => o.value === data.value);
   return <p className="text-sm text-gray-700 flex-1">{opt ? opt.label : <span className="text-gray-300 italic">Not set</span>}</p>;
-}
-
-function IngredientsEditor({ items, onChange }: { items: SdsIngredient[]; onChange: (items: SdsIngredient[]) => void }) {
-  function updateCell(i: number, key: keyof SdsIngredient, value: string) {
-    const next = items.slice();
-    next[i] = { ...next[i], [key]: value };
-    onChange(next);
-  }
-  function removeRow(i: number) {
-    onChange(items.filter((_, idx) => idx !== i));
-  }
-  function addRow() {
-    onChange([...items, { ...EMPTY_INGREDIENT }]);
-  }
-
-  return (
-    <div className="space-y-3">
-      {items.map((item, i) => (
-        <div key={i} className="border border-gray-200 rounded-lg p-3 grid grid-cols-3 gap-2">
-          {(Object.keys(EMPTY_INGREDIENT) as Array<keyof SdsIngredient>).map((key) => (
-            <input
-              key={key}
-              value={item[key]}
-              onChange={(e) => updateCell(i, key, e.target.value)}
-              placeholder={key}
-              className="border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          ))}
-          <button onClick={() => removeRow(i)} className="col-span-3 text-xs text-red-600 hover:text-red-800 text-right">
-            Remove ingredient
-          </button>
-        </div>
-      ))}
-      <button onClick={addRow} className="text-xs text-blue-700 border border-blue-300 rounded-lg px-3 py-1.5 hover:bg-blue-50">
-        + Add Ingredient
-      </button>
-    </div>
-  );
 }
