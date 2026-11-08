@@ -80,6 +80,9 @@ const SdsDocumentSchema = new Schema(
       default: 'pending',
     },
     modelUsed: { type: String, enum: ['groq', 'claude', 'gpt', 'ollama'] },
+    // Set when AI extraction errored (cleared on success); lets the same file
+    // be uploaded again to replace a record that never got extracted.
+    extractionFailedAt: { type: Date },
     sections: sectionsDefinition,
     uploadedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
     reviewedBy: { type: Schema.Types.ObjectId, ref: 'User' },

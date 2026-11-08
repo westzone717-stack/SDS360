@@ -32,12 +32,15 @@ async function readDocument(s3Key: string): Promise<Buffer> {
 async function extractText(buffer: Buffer, s3Key: string): Promise<string> {
   const ext = s3Key.split('.').pop()?.toLowerCase();
   if (ext === 'pdf') {
-    const { PDFParse } = await import('pdf-parse');
-    const parser = new PDFParse({ data: new Uint8Array(buffer) });
+    // unpdf is pdfjs built for serverless: unlike pdf-parse it doesn't need the
+    // native @napi-rs/canvas module (which Vercel's bundle doesn't include) to
+    // polyfill DOMMatrix, so text extraction works inside a Vercel function.
+    const { extractText: extractPdfText, getDocumentProxy } = await import('unpdf');
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
     try {
-      return (await parser.getText()).text ?? '';
+      return (await extractPdfText(pdf, { mergePages: true })).text;
     } finally {
-      await parser.destroy();
+      await pdf.cleanup();
     }
   }
   if (ext === 'png' || ext === 'jpg' || ext === 'jpeg') {
@@ -73,6 +76,21 @@ export async function runSdsExtraction(docId: string, customerId: string, budget
   const doc = await SdsDocumentModel.findOne({ _id: docId, customerId });
   if (!doc) throw new JobError('Document not found', 404);
 
+  try {
+    return await extractAndSave(doc, docId, customerId, budgetMs);
+  } catch (err) {
+    // Mark the failure so re-uploading the same file can replace this record
+    await SdsDocumentModel.updateOne({ _id: docId }, { extractionFailedAt: new Date() }).catch(() => {});
+    throw err;
+  }
+}
+
+async function extractAndSave(
+  doc: { s3Key: string; productName?: string },
+  docId: string,
+  customerId: string,
+  budgetMs: number,
+) {
   let text = await extractText(await readDocument(doc.s3Key), doc.s3Key);
   console.log(`[sds-extraction] Extracted ${text.length} chars from ${doc.s3Key}`);
   if (text.length > MAX_DOCUMENT_CHARS) text = text.slice(0, MAX_DOCUMENT_CHARS);
@@ -106,6 +124,7 @@ export async function runSdsExtraction(docId: string, customerId: string, budget
     reviewBy: result.metadata.reviewBy,
     modelUsed: result.modelUsed,
     reviewStatus: 'pending',
+    $unset: { extractionFailedAt: 1 },
   });
 
   console.log(`[sds-extraction] Completed docId=${docId} via ${result.modelUsed}`);
